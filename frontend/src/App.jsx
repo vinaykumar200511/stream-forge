@@ -338,6 +338,15 @@ const buildFallbackTopology = () => ({
 function App() {
   const [metrics, setMetrics] = useState(initialMetrics);
   const [streamMetrics, setStreamMetrics] = useState({ status: "unavailable", partitions: [], totalLag: 0, maxPartitionLag: 0, consumerGroup: "streamforge-worker" });
+  const [operations, setOperations] = useState({
+    alerts: [],
+    failures: { active: 0, today: 0, resolvedToday: 0, critical: 0, status: "loading" },
+    temperature: { status: "loading", points: [] },
+    throughput: { status: "loading", current: 0, average: 0, peak: 0, points: [] },
+    trips: { status: "loading", items: [] },
+    loads: { status: "loading", items: [] },
+    deliveries: { status: "loading", items: [] },
+  });
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -410,12 +419,24 @@ function App() {
       }
     };
 
+    const fetchOperations = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/operations/overview`);
+        if (!response.ok) throw new Error(`Operations fetch failed: ${response.status}`);
+        const data = await response.json();
+        if (isMounted) setOperations(data);
+      } catch {
+        if (isMounted) setOperations((current) => ({ ...current, status: "unavailable" }));
+      }
+    };
+
     const connectMetricsStream = () => {
       const socketUrl = `${API_BASE_URL.replace(/^http/, "ws")}/api/metrics/stream`;
       const socket = new WebSocket(socketUrl);
       socket.onmessage = (event) => {
         if (!isMounted) return;
         const liveMetrics = JSON.parse(event.data);
+        if (liveMetrics.operations) setOperations(liveMetrics.operations);
         const group = liveMetrics?.groups?.[0];
         const partitions = (group?.topics || []).flatMap((topic) => topic.partitions || []);
         setStreamMetrics({
@@ -461,17 +482,20 @@ function App() {
 
     fetchTopology();
     fetchMetrics();
+    fetchOperations();
     fetchRoutes();
     const metricsSocket = connectMetricsStream();
     const topologyInterval = window.setInterval(fetchTopology, 4000);
     const routeInterval = window.setInterval(fetchRoutes, 5000);
     const metricsInterval = window.setInterval(fetchMetrics, 5000);
+    const operationsInterval = window.setInterval(fetchOperations, 10000);
 
     return () => {
       isMounted = false;
       window.clearInterval(topologyInterval);
       window.clearInterval(routeInterval);
       window.clearInterval(metricsInterval);
+      window.clearInterval(operationsInterval);
       metricsSocket.close();
     };
   }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
@@ -626,6 +650,39 @@ function App() {
           <small>consumer group p95</small>
           <div className="lag-track"><span style={{ width: `${Math.min(100, metrics.processingLagMs)}%` }} /></div>
         </div>
+      </section>
+
+      <section className="phase-two-grid" aria-label="Fleet operations">
+        <article className="phase-two-panel alert-panel">
+          <div className="section-title compact-title"><div><span className="chart-label">Temperature guardrails</span><h2>High-temperature alerts</h2></div><strong>{operations.alerts?.length || 0}</strong></div>
+          {operations.alerts?.length ? operations.alerts.map((alert) => (
+            <div className="alert-row" key={alert.deviceId}>
+              <div><strong>{alert.deviceId}</strong><span>{alert.status} · {alert.durationSeconds}s</span></div>
+              <b>{alert.temperature}°C <small> / {alert.threshold}°C</small></b>
+            </div>
+          )) : <p className="data-state">No active high-temperature alerts.</p>}
+        </article>
+        <article className="phase-two-panel">
+          <div className="section-title compact-title"><div><span className="chart-label">Reliability</span><h2>Failure counters</h2></div><span className="source-state">{operations.failures?.status}</span></div>
+          <div className="failure-grid">
+            <div><strong>{operations.failures?.active ?? 0}</strong><span>Active</span></div>
+            <div><strong>{operations.failures?.today ?? 0}</strong><span>Today</span></div>
+            <div><strong>{operations.failures?.resolvedToday ?? 0}</strong><span>Resolved</span></div>
+            <div><strong>{operations.failures?.critical ?? 0}</strong><span>Critical</span></div>
+          </div>
+        </article>
+        <article className="phase-two-panel">
+          <div className="section-title compact-title"><div><span className="chart-label">Throughput</span><h2>Event flow</h2></div><span className="source-state">{operations.throughput?.status}</span></div>
+          {operations.throughput?.status === "available" ? <div className="throughput-values"><strong>{formatNumber(operations.throughput.current)} <small>events/s</small></strong><span>Average {formatNumber(operations.throughput.average)} · Peak {formatNumber(operations.throughput.peak)}</span></div> : <p className="data-state">Throughput data unavailable.</p>}
+        </article>
+        <article className="phase-two-panel phase-two-wide">
+          <div className="section-title compact-title"><div><span className="chart-label">Operations</span><h2>Trips, loads, and deliveries</h2></div></div>
+          <div className="domain-status-grid">
+            {["trips", "loads", "deliveries"].map((domain) => (
+              <div key={domain} className="domain-status"><span>{domain}</span><strong>{operations[domain]?.status}</strong><small>{operations[domain]?.status === "unavailable" ? operations[domain]?.message : `${operations[domain]?.items?.length || 0} records`}</small></div>
+            ))}
+          </div>
+        </article>
       </section>
 
       <section className="lag-panel" aria-label="Kafka partition lag">

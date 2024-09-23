@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     SAFE_TEMP_MIN: float = Field(default=-25.0)
     SAFE_TEMP_MAX: float = Field(default=-10.0)
     TEMP_SPIKE_TOLERANCE: float = Field(default=3.0)
+    HIGH_TEMPERATURE_THRESHOLD: float = Field(default=-10.0)
+    HIGH_TEMPERATURE_DURATION_SECONDS: int = Field(default=30, ge=0)
 
     # Backend & Security
     API_HOST: str = Field(default="0.0.0.0")

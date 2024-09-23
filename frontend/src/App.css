@@ -199,6 +199,33 @@ h1 {
 .health-bar span { background: #22c55e; }
 .lag-track span { background: #38bdf8; }
 
+.phase-two-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 1400px; margin: 0 auto 24px; }
+.phase-two-panel { min-width: 0; padding: 18px 20px; border: 1px solid #24364d; border-radius: 14px; background: rgba(9, 24, 39, 0.88); }
+.phase-two-wide { grid-column: 1 / -1; }
+.compact-title { margin-bottom: 14px; }
+.compact-title h2 { margin-top: 4px; font-size: 18px; }
+.compact-title > strong { margin-left: auto; color: #fca5a5; font-size: 24px; }
+.source-state { margin-left: auto; color: #94a3b8; font-size: 11px; text-transform: uppercase; }
+.alert-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid rgba(56, 80, 108, 0.45); }
+.alert-row div { display: grid; gap: 4px; min-width: 0; }
+.alert-row strong { color: #f8fafc; font-size: 13px; }
+.alert-row span, .alert-row small { color: #94a3b8; font-size: 11px; }
+.alert-row b { color: #fca5a5; white-space: nowrap; }
+.data-state { color: #94a3b8; font-size: 13px; }
+.failure-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.failure-grid div { display: grid; gap: 5px; padding: 11px 8px; border: 1px solid #24364d; border-radius: 8px; background: #0b192b; text-align: center; }
+.failure-grid strong { color: #f8fafc; font-size: 21px; }
+.failure-grid span { color: #94a3b8; font-size: 10px; }
+.throughput-values { display: grid; gap: 10px; }
+.throughput-values strong { color: #7dd3fc; font-size: 26px; }
+.throughput-values strong small { color: #94a3b8; font-size: 12px; }
+.throughput-values span { color: #94a3b8; font-size: 12px; }
+.domain-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.domain-status { display: grid; gap: 6px; padding: 13px; border: 1px solid #24364d; border-radius: 9px; background: #0b192b; }
+.domain-status span { color: #cbd5e1; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.domain-status strong { color: #facc15; font-size: 13px; text-transform: uppercase; }
+.domain-status small { color: #94a3b8; font-size: 11px; }
+
 .lag-panel {
   max-width: 1400px;
   margin: 0 auto 24px;

@@ -161,3 +161,11 @@ The React dashboard is an owner-facing fleet command center built on the existin
 - Clickable route-map and movement-legend assets that keep the selected truck in context.
 
 Driver, cleaner, customer, shipment, compliance, and authenticated role workflows are not exposed by the current backend API. The dashboard labels those records as unavailable rather than presenting simulated operational data; these are the next integration surfaces for a production FleetPulse deployment.
+
+## 8. Operations Observability
+
+The dashboard now exposes a shared operations contract at `GET /api/operations/overview` and active temperature alerts at `GET /api/alerts/temperature`. The existing metrics WebSocket (`/api/metrics/stream`) includes an `operations` object in its `metrics_update` envelope so alerts, failure counters, and throughput can update without opening a second browser connection.
+
+Temperature alert evaluation uses `HIGH_TEMPERATURE_THRESHOLD` and `HIGH_TEMPERATURE_DURATION_SECONDS`. One active alert is retained per device, resolves when the reading returns to the threshold, and is not duplicated while the condition remains active.
+
+The current telemetry contract contains GPS, temperature readings, and throughput gauges, but it does not contain persisted temperature history, normalized failure events, trip records, load records, or delivery events. Those sections return explicit `unavailable` or empty states until those source events and storage models are added; the UI does not fabricate them.

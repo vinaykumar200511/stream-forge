@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from streamforge.common.config import settings
 from streamforge.backend.metrics import get_dashboard_metrics, get_kafka_observability, get_prometheus_metrics
 from streamforge.backend.kafka_metrics import kafka_metrics_service
+from streamforge.backend.operations import operations_service
 
 # Application initialization
 app = FastAPI(
@@ -97,7 +98,40 @@ async def metrics_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(kafka_metrics_service.snapshot())
+            await websocket.send_json({
+                "type": "metrics_update",
+                **kafka_metrics_service.snapshot(),
+                "operations": operations_service.overview(),
+            })
+            await asyncio.sleep(settings.KAFKA_METRICS_POLL_INTERVAL_SECONDS)
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        return
+
+
+@app.get("/api/operations/overview", tags=["Operations"])
+async def operations_overview() -> Dict[str, Any]:
+    """Return authoritative alert, failure, analytics, trip, load, and delivery states."""
+    return operations_service.overview()
+
+
+@app.get("/api/alerts/temperature", tags=["Operations"])
+async def temperature_alerts() -> Dict[str, Any]:
+    """Return currently active high-temperature alerts."""
+    return {
+        "status": "ok",
+        "threshold": operations_service.alerts.threshold,
+        "alerts": operations_service.alerts.active_alerts(),
+        "updatedAt": operations_service.overview()["updatedAt"],
+    }
+
+
+@app.websocket("/api/operations/stream")
+async def operations_stream(websocket: WebSocket) -> None:
+    """Stream one consistent operations envelope over the existing realtime channel."""
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.send_json({"type": "operations_update", **operations_service.overview()})
             await asyncio.sleep(settings.KAFKA_METRICS_POLL_INTERVAL_SECONDS)
     except (WebSocketDisconnect, asyncio.CancelledError):
         return
