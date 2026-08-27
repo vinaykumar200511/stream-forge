@@ -61,7 +61,7 @@ flowchart TD
 
 ---
 
-## 3. "Top-Performer" Feature Matrix
+## 3.  Feature Matrix
 
 | Feature | Minimum Specification Bar | StreamForge Top-Performer Implementation | Status |
 | :--- | :--- | :--- | :--- |
