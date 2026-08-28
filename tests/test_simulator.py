@@ -74,3 +74,72 @@ def test_simulator_late_event_generation():
     current_time = time.time()
     # Event timestamp should be delayed by at least 9 seconds
     assert current_time - event.timestamp >= 9.0
+
+
+def test_truck_state_temperature_spike():
+    """Verify sudden high temperature spike anomaly injection."""
+    truck = TruckState(
+        customer_id="cust_01",
+        truck_id="trk_01_0001",
+        route_id="route_01",
+        target_temp=-18.0,
+        current_temp=-18.0,
+    )
+    initial_temp = truck.current_temp
+    truck.step(inject_spike=True)
+    
+    # Current temperature should spike significantly higher (e.g. +12°C to +25°C)
+    assert truck.current_temp >= initial_temp + 10.0
+
+    simulator = TelemetrySimulator(num_customers=1, num_trucks=1, anomaly_rate=0.0)
+    truck_key = list(simulator.fleet.keys())[0]
+    baseline_event = simulator.generate_event_for_truck(truck_key, force_spike=False)
+    spiked_event = simulator.generate_event_for_truck(truck_key, force_spike=True)
+    
+    # Event temperature should reflect sudden high temperature spike
+    assert spiked_event.temperature > baseline_event.temperature + 5.0
+
+
+def test_truck_state_normal_small_variations():
+    """Verify small variations during normal temperature generation."""
+    truck = TruckState(
+        customer_id="cust_01",
+        truck_id="trk_01_0001",
+        route_id="route_01",
+        target_temp=-18.0,
+        current_temp=-18.0,
+    )
+    temps = []
+    for _ in range(15):
+        truck.step(inject_anomaly=False)
+        temps.append(truck.current_temp)
+
+    # Ensure temperatures fluctuate around target with small variation without exploding
+    for t in temps:
+        assert -25.0 <= t <= -10.0
+
+
+def test_simulator_explicit_timestamp_delay():
+    """Verify explicit timestamp delay logic for windowing tests."""
+    simulator = TelemetrySimulator(num_customers=1, num_trucks=1, late_event_rate=0.0)
+    truck_key = list(simulator.fleet.keys())[0]
+    
+    now = time.time()
+    event = simulator.generate_event_for_truck(truck_key, force_late=True, delay_seconds=120.0)
+    
+    # Event timestamp should be backdated by ~120 seconds
+    assert now - event.timestamp >= 119.0
+
+
+def test_simulator_dropped_messages():
+    """Verify dropped message simulation packet loss behavior."""
+    # 100% drop rate should drop all batch events
+    simulator = TelemetrySimulator(num_customers=1, num_trucks=5, drop_rate=1.0)
+    batch = simulator.generate_batch(batch_size=20, simulate_drops=True)
+    assert len(batch) == 0
+
+    # Disabling drop simulation should produce all events
+    full_batch = simulator.generate_batch(batch_size=20, simulate_drops=False)
+    assert len(full_batch) == 20
+
+

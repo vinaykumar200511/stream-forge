@@ -345,7 +345,11 @@ def run_dry_run(
     try:
         while continuous or (generated < count):
             step_start = time.time()
-            event = simulator.generate_batch(batch_size=1)[0]
+            batch = simulator.generate_batch(batch_size=1)
+            if not batch:
+                logger.info("[DROPPED] Simulated packet loss — telemetry event dropped")
+                continue
+            event = batch[0]
             generated += 1
             logger.info(
                 "[%d%s] %-20s | Temp=%6.2f\u00b0C (target %6.2f\u00b0C) | %-7s | Bat=%5.1f%% | Pos=(%.4f, %.4f)",
@@ -394,6 +398,10 @@ def main() -> None:
                         help="Number of simulated fleet tenants")
     parser.add_argument("--anomalies", type=float, default=0.03,
                         help="Anomaly injection probability [0.0 \u2013 1.0]")
+    parser.add_argument("--late-rate", type=float, default=0.05,
+                        help="Late-arriving timestamp delay probability [0.0 \u2013 1.0]")
+    parser.add_argument("--drop-rate", type=float, default=0.0,
+                        help="Message packet loss / drop probability [0.0 \u2013 1.0]")
     parser.add_argument("--flush-timeout", type=float, default=10.0,
                         help="Seconds to wait for broker flush on shutdown")
     parser.add_argument("--dry-run", action="store_true",
@@ -404,6 +412,8 @@ def main() -> None:
         num_customers=args.customers,
         num_trucks=args.trucks,
         anomaly_rate=args.anomalies,
+        late_event_rate=args.late_rate,
+        drop_rate=args.drop_rate,
     )
 
     if args.dry_run:

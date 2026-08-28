@@ -24,7 +24,12 @@ class TruckState:
     is_faulty: bool = False
     fault_ticks_remaining: int = 0
 
-    def step(self, inject_anomaly: bool = False, force_recover: bool = False) -> None:
+    def step(
+        self,
+        inject_anomaly: bool = False,
+        force_recover: bool = False,
+        inject_spike: bool = False,
+    ) -> None:
         """Simulate one time step of realistic thermodynamic and vehicle behavior."""
         if force_recover:
             self.is_faulty = False
@@ -36,25 +41,33 @@ class TruckState:
             self.fault_ticks_remaining = random.randint(15, 40)
             self.compressor_status = CompressorStatus.FAULT
 
+        # Sudden high-temperature spike injection (transient sensor glitch or thermal burst)
+        if inject_spike:
+            self.current_temp += random.uniform(12.0, 25.0)
+
         if self.is_faulty:
             # Compressor failed: cargo bay temperature rises rapidly towards ambient
-            heat_gain = random.uniform(0.3, 0.8)
-            self.current_temp += heat_gain
+            heat_gain = random.uniform(0.3, 0.8) + random.gauss(0.0, 0.05)
+            self.current_temp += max(0.1, heat_gain)
             self.fault_ticks_remaining -= 1
             if self.fault_ticks_remaining <= 0:
                 # Maintenance intervention / recovery
                 self.is_faulty = False
                 self.compressor_status = CompressorStatus.RUNNING
         else:
-            # Normal operation: cooling towards target with minor oscillation
+            # Normal operation: cooling towards target with realistic small variations
+            small_variation = random.gauss(0.0, 0.05)
             if self.current_temp > self.target_temp + 0.5:
                 self.compressor_status = CompressorStatus.RUNNING
-                self.current_temp -= random.uniform(0.1, 0.4)
+                cooling_delta = random.uniform(0.1, 0.4) + small_variation
+                self.current_temp -= max(0.05, cooling_delta)
             elif self.current_temp < self.target_temp - 1.0:
                 self.compressor_status = CompressorStatus.OFF
-                self.current_temp += random.uniform(0.05, 0.2)
+                warming_delta = random.uniform(0.05, 0.2) + small_variation
+                self.current_temp += max(0.02, warming_delta)
             else:
-                self.current_temp += random.uniform(-0.15, 0.15)
+                # Oscillating around target with fine-grained noise
+                self.current_temp += random.uniform(-0.15, 0.15) + small_variation
 
             # Rare brief door opening
             if random.random() < 0.02:
@@ -84,11 +97,15 @@ class TelemetrySimulator:
         num_trucks: int = None,
         anomaly_rate: float = 0.03,
         late_event_rate: float = 0.05,
+        drop_rate: float = 0.0,
+        max_late_delay_sec: float = 120.0,
     ):
         self.num_customers = num_customers or settings.SIMULATION_NUM_CUSTOMERS
         self.num_trucks = num_trucks or settings.SIMULATION_NUM_TRUCKS
         self.anomaly_rate = anomaly_rate
         self.late_event_rate = late_event_rate
+        self.drop_rate = drop_rate
+        self.max_late_delay_sec = max_late_delay_sec
         self.fleet: Dict[str, TruckState] = {}
         self._init_fleet()
 
@@ -123,23 +140,40 @@ class TelemetrySimulator:
     def total_trucks(self) -> int:
         return len(self.fleet)
 
-    def generate_event_for_truck(self, truck_key: str) -> RawTelemetryEvent:
-        """Advance one truck's state and emit its telemetry event."""
+    def generate_event_for_truck(
+        self,
+        truck_key: str,
+        force_spike: bool = False,
+        force_late: bool = False,
+        delay_seconds: Optional[float] = None,
+    ) -> RawTelemetryEvent:
+        """Advance one truck's state and emit its telemetry event with optional late-arrival timestamp delay."""
         state = self.fleet[truck_key]
-        should_spike = random.random() < self.anomaly_rate
-        state.step(inject_anomaly=should_spike)
+        
+        # Determine if an anomaly or high-temp spike should be injected
+        trigger_anomaly = random.random() < self.anomaly_rate
+        inject_spike = force_spike or (trigger_anomaly and random.random() < 0.5)
+        inject_fault = trigger_anomaly and not inject_spike
+
+        state.step(inject_anomaly=inject_fault, inject_spike=inject_spike)
 
         event_timestamp = time.time()
         # Simulate late-arriving / out-of-order telemetry for watermark grace testing
-        if random.random() < self.late_event_rate:
-            event_timestamp -= random.uniform(10.0, 45.0)
+        should_be_late = force_late or (random.random() < self.late_event_rate)
+        if should_be_late:
+            actual_delay = delay_seconds if delay_seconds is not None else random.uniform(10.0, self.max_late_delay_sec)
+            event_timestamp -= actual_delay
+
+        # Add realistic minor sensor measurement noise
+        sensor_noise = random.gauss(0.0, 0.05)
+        reported_temp = round(state.current_temp + sensor_noise, 2)
 
         return RawTelemetryEvent(
             customer_id=state.customer_id,
             truck_id=state.truck_id,
             route_id=state.route_id,
             timestamp=event_timestamp,
-            temperature=round(state.current_temp, 2),
+            temperature=reported_temp,
             target_temp=round(state.target_temp, 2),
             ambient_temp=round(state.ambient_temp, 2),
             compressor_status=state.compressor_status,
@@ -150,15 +184,22 @@ class TelemetrySimulator:
             speed_kmh=round(state.speed_kmh, 1),
         )
 
-    def generate_batch(self, batch_size: int = 100) -> List[RawTelemetryEvent]:
-        """Generate a random batch of events across the fleet."""
+    def generate_batch(self, batch_size: int = 100, simulate_drops: bool = True) -> List[RawTelemetryEvent]:
+        """Generate a random batch of events across the fleet, honoring optional dropped message logic."""
         keys = list(self.fleet.keys())
         selected_keys = random.choices(keys, k=batch_size)
-        return [self.generate_event_for_truck(k) for k in selected_keys]
+        events = []
+        for k in selected_keys:
+            if simulate_drops and self.drop_rate > 0 and random.random() < self.drop_rate:
+                continue  # Simulate dropped packet / network loss
+            events.append(self.generate_event_for_truck(k))
+        return events
 
-    def stream_events(self) -> Generator[RawTelemetryEvent, None, None]:
-        """Continuous generator streaming events infinitely across the active fleet."""
+    def stream_events(self, simulate_drops: bool = True) -> Generator[RawTelemetryEvent, None, None]:
+        """Continuous generator streaming events infinitely across the active fleet, honoring dropped message logic."""
         keys = list(self.fleet.keys())
         while True:
             k = random.choice(keys)
+            if simulate_drops and self.drop_rate > 0 and random.random() < self.drop_rate:
+                continue  # Simulate dropped packet / network loss
             yield self.generate_event_for_truck(k)
