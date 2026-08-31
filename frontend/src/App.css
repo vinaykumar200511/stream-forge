@@ -1,0 +1,156 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #07111f;
+  color: #e5eefb;
+  font-family: Arial, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.dashboard {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top right, #12335a 0%, transparent 35%),
+    #07111f;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto 28px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 38px;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: #94a3b8;
+}
+
+.status {
+  padding: 10px 14px;
+  border: 1px solid #854d0e;
+  border-radius: 999px;
+  background: #422006;
+  color: #facc15;
+  font-size: 14px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  max-width: 1400px;
+  margin: 0 auto 24px;
+}
+
+.card {
+  padding: 20px;
+  border: 1px solid #24364d;
+  border-radius: 14px;
+  background: rgba(15, 30, 50, 0.88);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+.card span {
+  display: block;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.card strong {
+  display: block;
+  margin-top: 10px;
+  color: #f8fafc;
+  font-size: 28px;
+}
+
+.card .waiting {
+  color: #facc15;
+  font-size: 20px;
+}
+
+.topology-section {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  border: 1px solid #24364d;
+  border-radius: 14px;
+  background: rgba(15, 30, 50, 0.88);
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.section-title p {
+  margin: 6px 0 18px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.flow-container {
+  height: 500px;
+  overflow: hidden;
+  border: 1px solid #24364d;
+  border-radius: 10px;
+  background: #0a1628;
+}
+
+@media (max-width: 800px) {
+  .dashboard {
+    padding: 18px;
+  }
+
+  .header {
+    display: block;
+  }
+
+  .status {
+    display: inline-block;
+    margin-top: 16px;
+  }
+
+  .cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .flow-container {
+    height: 420px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: 30px;
+  }
+}
