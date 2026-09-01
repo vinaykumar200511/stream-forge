@@ -1,20 +1,31 @@
 import faust
 
-# Faust application, pointed at local Kafka
+# Faust application, pointed at local Kafka (matches team's KAFKA_BOOTSTRAP_SERVERS)
 app = faust.App(
     'streamforge',
     broker='kafka://localhost:9092',
     store='memory://',  # we'll swap this for RocksDB in Week 3
 )
 
-# Schema for incoming truck telemetry events
-class TruckEvent(faust.Record, serializer='json'):
-    truck_id: str
-    temperature: float
+# Matches streamforge/common/models.py -> RawTelemetryEvent
+class RawTelemetryEvent(faust.Record, serializer='json'):
+    event_id: str
     timestamp: float
+    customer_id: str
+    truck_id: str
+    route_id: str
+    temperature: float
+    target_temp: float
+    ambient_temp: float
+    compressor_status: str
+    door_open: bool
+    battery_level: float
+    latitude: float
+    longitude: float
+    speed_kmh: float
 
-# Input topic — matches whatever topic the Week 1 producer wrote to
-truck_topic = app.topic('truck-telemetry', value_type=TruckEvent)
+# Matches streamforge/common/config.py -> KAFKA_RAW_TOPIC (default: "raw-telemetry")
+raw_topic = app.topic('raw-telemetry', value_type=RawTelemetryEvent)
 
 if __name__ == '__main__':
     app.main()
