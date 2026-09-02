@@ -61,12 +61,51 @@ This turns a slow, postmortem batch report into a **proactive real-time control 
 
 ## 5. Verified SLA Outcomes
 
-| SLA | Target | Measured |
-|:---|:---|:---|
-| Throughput | ≥ 10,000 ev/s | **> 13,000 ev/s** |
-| Processing latency p95 | < 20 ms | **< 0.15 ms** |
-| State loss on crash (RPO) | 0.00% | **0.00%** (500/500 trucks recovered) |
-| Worker recovery time (RTO) | < 5.0 s | **2.14 s** |
-| Out-of-order tolerance | 30 s grace | **Implemented** |
+```mermaid
+flowchart LR
+    classDef target  fill:#1e293b,stroke:#3b82f6,color:#93c5fd,rx:6
+    classDef measured fill:#052e16,stroke:#22c55e,color:#86efac,rx:6
+    classDef pass    fill:#14532d,stroke:#4ade80,color:#ffffff,font-weight:bold,rx:6
+
+    subgraph T1["⚡ Throughput"]
+        direction LR
+        A1["Target\n≥ 10,000 ev/s"]:::target
+        A2["Measured\n> 13,000 ev/s"]:::measured
+        A3["✅ PASS"]:::pass
+        A1 --> A2 --> A3
+    end
+
+    subgraph T2["⏱ Latency p95"]
+        direction LR
+        B1["Target\n< 20 ms"]:::target
+        B2["Measured\n< 0.15 ms"]:::measured
+        B3["✅ PASS"]:::pass
+        B1 --> B2 --> B3
+    end
+
+    subgraph T3["💾 State Loss — RPO"]
+        direction LR
+        C1["Target\n0.00% loss"]:::target
+        C2["Measured\n0.00% · 500/500 trucks"]:::measured
+        C3["✅ PASS"]:::pass
+        C1 --> C2 --> C3
+    end
+
+    subgraph T4["🔄 Recovery Time — RTO"]
+        direction LR
+        D1["Target\n< 5.0 s"]:::target
+        D2["Measured\n2.14 s"]:::measured
+        D3["✅ PASS"]:::pass
+        D1 --> D2 --> D3
+    end
+
+    subgraph T5["📦 Out-of-Order Tolerance"]
+        direction LR
+        E1["Target\n30 s grace period"]:::target
+        E2["Measured\nWatermark grace implemented"]:::measured
+        E3["✅ PASS"]:::pass
+        E1 --> E2 --> E3
+    end
+```
 
 Evidence: [`docs/evidence/chaos_failover_log.md`](evidence/chaos_failover_log.md) · [`docs/evidence/throughput_benchmark.md`](evidence/throughput_benchmark.md)
