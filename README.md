@@ -11,57 +11,40 @@
 
 ---
 
-## 1. The Business Story
+## 1. Problem Statement & Architecture Overview
 
-**Client:** FleetPulse Analytics (SaaS logistics platform managing nationwide refrigerated fleets).  
-**The Problem:** Their enterprise customer operates 50,000 trucks hauling temperature-critical cargo (frozen vaccines, meats, ice cream, fresh produce). A compressor failure causes food spoilage within 30 minutes, leading to tens of thousands of dollars in lost cargo and insurance claims. The client previously relied on a nightly batch ETL job—alerting fleet managers **12 hours too late**.  
-**The Solution:** **StreamForge** — A Python-native, high-throughput distributed event processor (Apache Kafka KRaft + RocksDB state store + Faust/aiokafka + FastAPI + React Flow) computing **continuous 5-minute tumbling/rolling window averages per truck**, detecting anomalous thermal spikes within milliseconds, and maintaining zero-data-loss resilience across worker crashes through Kafka changelog replication.
+FleetPulse operates a refrigerated logistics network spanning more than 50,000 vehicles. A single compressor fault or temperature excursion can push cargo beyond safe limits in under 30 minutes, causing product loss, regulatory risk, and expensive insurance claims. The existing batch pipeline reports incidents 12 hours late, which is far beyond the window needed to intervene.
 
----
-
-## 2. Distributed Architecture
+StreamForge solves this by processing telemetry as a real-time stream: it ingests truck-level sensor events, maintains per-vehicle state, computes rolling temperature averages, detects anomalies in seconds, and preserves state across worker failures using Kafka-backed changelogs.
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion["Ingestion Tier"]
-        TP["Multi-Tenant Telemetry Simulator<br/>(50k Trucks | 5 Tenants | Latency / Spikes)"]
-        TP -->|"Kafka Key: customer_id:truck_id"| KR_RAW["Kafka Topic: raw-telemetry<br/>(6 Partitions - KRaft Mode)"]
-    end
+flowchart LR
+    T[50k refrigerated trucks\n5 tenant fleets\nIoT telemetry] --> K[Kafka raw-telemetry]
+    K --> W1[Stream workers]
+    K --> W2[Stream workers]
 
-    subgraph Processing["Distributed Stream Processing Tier"]
-        KR_RAW --> W1["Stream Worker 01<br/>(Partitions 0, 1, 2)"]
-        KR_RAW --> W2["Stream Worker 02<br/>(Partitions 3, 4, 5)"]
+    W1 --> S1[(RocksDB state store)]
+    W2 --> S2[(RocksDB state store)]
+    W1 --> C[Kafka changelog]
+    W2 --> C
 
-        W1 <-->|"Local Read / Write"| RDB1[("RocksDB State Store")]
-        W1 -->|"State Sync Replay"| KR_CHANGE["Kafka Topic: changelog-topic"]
-        
-        W2 <-->|"Local Read / Write"| RDB2[("RocksDB State Store")]
-        W2 -->|"State Sync Replay"| KR_CHANGE
+    W1 --> P[Processed averages]
+    W1 --> A[Alert stream]
+    W2 --> P
+    W2 --> A
 
-        W1 -->|"5-Min Rolling Avg"| KR_PROC["Kafka Topic: processed-averages"]
-        W1 -->|"Temp Excursions"| KR_ALERT["Kafka Topic: alerts-topic"]
-        
-        W2 -->|"5-Min Rolling Avg"| KR_PROC
-        W2 -->|"Temp Excursions"| KR_ALERT
-    end
-
-    subgraph Backend["API & Observability Tier"]
-        KR_ALERT --> WHD["Async Webhook Dispatcher"]
-        WHD -->|"HTTP POST (Retry Backoff)"| EXT["Customer Incident Dispatch Center"]
-        
-        KR_PROC --> API["FastAPI Backend Engine"]
-        AUTH["JWT Security Layer"] --> API
-        API -->|"Prometheus Scrape"| PROM["Prometheus (/metrics)"]
-    end
-
-    subgraph Frontend["Real-Time Dashboard UI"]
-        API <-->|"WebSockets (Live Stream)"| UI["React Flow Topology + Recharts Dashboard"]
-    end
+    P --> API[FastAPI + WebSocket API]
+    A --> H[Async webhook dispatcher]
+    API --> UI[React dashboard]
+    API --> M[Prometheus metrics]
+    H --> E[Fleet incident center]
 ```
+
+This architecture keeps ingestion high-throughput, processing local to each worker, and recovery deterministic. The result is a system that can react within seconds instead of hours while preserving state durability when a worker crashes.
 
 ---
 
-## 3.  Feature Matrix
+## 2. Feature Matrix
 
 | Feature | Minimum Specification Bar | StreamForge Top-Performer Implementation | Status |
 | :--- | :--- | :--- | :--- |
@@ -77,7 +60,7 @@ flowchart TD
 
 ---
 
-## 4. Quickstart Guide
+## 3. Quickstart Guide
 
 ### Prerequisites
 - Python 3.11+
@@ -125,7 +108,7 @@ docker-compose up -d --build
 
 ---
 
-## 5. Verification & Testing Evidence
+## 4. Verification & Testing Evidence
 
 ### Automated Test Suite
 - **Unit Tests:** `pytest tests/ -v` (10 passing unit tests verifying tumbling window math, out-of-order grace watermark, threshold breaches, and JWT security).
@@ -134,5 +117,5 @@ docker-compose up -d --build
 
 ---
 
-## 6. Demo Script & Review Presentation
+## 5. Demo Script & Review Presentation
 Reviewers can follow the step-by-step 2-minute pitch guide in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
