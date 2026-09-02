@@ -1,29 +1,72 @@
 # Problem Statement
 
-## 1. Business problem
+## 1. Business Problem
 
-FleetPulse manages refrigerated transport for temperature-sensitive cargo such as vaccines, dairy, frozen foods, and fresh produce. These assets are highly sensitive to thermal drift. If a trailer's compressor or refrigeration system fails, the load can exceed safe temperature limits within minutes, creating spoilage risk, customer claims, and regulatory exposure.
+FleetPulse Analytics manages refrigerated transport for temperature-sensitive cargo — frozen vaccines, dairy, seafood, and fresh produce — across **50,000 trucks** operated by five enterprise tenants.
 
-The current operational model relies on nightly batch processing. That creates a delay of roughly 12 hours between a truck deviating from its safe temperature band and the fleet operator becoming aware of it. In a cold-chain environment, that delay is too slow to prevent loss.
+This cargo is regulated. It must remain within a strict thermal band (**−25 °C to −10 °C**). If a truck's refrigeration unit fails or drifts outside the safe range, irreversible spoilage begins within **30 minutes**. The consequences are severe:
 
-## 2. Operational impact
+| Impact Category | Consequence |
+|:---|:---|
+| **Product spoilage** | Entire trailer loads destroyed before the operator is alerted |
+| **Financial loss** | Tens of thousands of dollars per incident in inventory and claims |
+| **Regulatory exposure** | Cold-chain compliance violations, particularly for pharmaceutical cargo |
+| **Customer trust** | Repeated failures erode SLA confidence and contract renewals |
 
-- Product spoilage before intervention.
-- Lost revenue from damaged inventory.
-- Additional costs from claims, replacements, and service disruption.
-- Poor customer trust when temperature-sensitive deliveries fail.
+The existing system processes telemetry as a **nightly batch ETL job**. Fleet managers receive anomaly reports approximately **12 hours after** the thermal event occurs. By that point, intervention is impossible. The damage is already done.
 
-## 3. Requirements for the solution
+---
 
-The required system must:
+## 2. Root Cause: The Batch Gap
 
-- consume high-volume telemetry from thousands of trucks in real time;
-- aggregate temperature behavior over short windows, such as five minutes;
-- detect threshold breaches and fault events immediately;
-- tolerate delayed or out-of-order telemetry packets;
-- keep state resilient after worker failures;
-- expose a live operational view for fleet monitoring.
+The 12-hour detection gap is an architectural problem, not an operational one. Batch processing is fundamentally incompatible with time-critical cold-chain monitoring. The core failure modes are:
+
+- **No streaming pipeline**: Telemetry sits in object storage until the nightly job runs.
+- **No per-truck state**: Aggregation happens over bulk data, not individual vehicle histories.
+- **No anomaly engine**: Threshold breach detection is a post-hoc report, not a live trigger.
+- **No fault tolerance**: Worker failures discard in-progress aggregation windows entirely.
+
+---
+
+## 3. Requirements for the Solution
+
+The replacement system must satisfy the following capabilities:
+
+| # | Requirement | Target |
+|:--|:---|:---|
+| R1 | Ingest telemetry from 50,000 trucks across 5 tenants | ≥ 10,000 events/sec sustained |
+| R2 | Aggregate temperature over rolling time windows per truck | 5-minute tumbling window |
+| R3 | Detect threshold breaches in near real time | < 1 second end-to-end |
+| R4 | Tolerate delayed or out-of-order cellular telemetry packets | 30-second watermark grace period |
+| R5 | Survive worker crashes with no state loss | 0.00% RPO · RTO < 5 s |
+| R6 | Dispatch alerts to fleet dispatch centers automatically | Async HTTP POST with exponential retry |
+| R7 | Expose live operational visibility to fleet operators | WebSocket-fed dashboard |
+| R8 | Enforce tenant-level data isolation | JWT auth · partition-keyed RBAC |
+
+---
 
 ## 4. Why StreamForge
 
-StreamForge addresses this by processing telemetry as a continuous event stream instead of a delayed batch. It maintains local state per vehicle, computes rolling averages and anomalies in near real time, and ensures recovery without losing data by replaying Kafka changelog state. This turns a slow postmortem process into a proactive operational control loop.
+StreamForge addresses these requirements by replacing the batch loop with a **continuous, stateful event stream**:
+
+- Telemetry is ingested into Apache Kafka as events arrive, not hours later.
+- Per-truck rolling windows are maintained in worker-local RocksDB state, giving sub-millisecond read/write access to hot aggregation data.
+- Threshold breaches trigger an autonomous anomaly engine that dispatches webhook alerts to external dispatch centers within milliseconds.
+- Kafka changelog replication ensures that if a worker is killed mid-window (`SIGKILL`), its state is fully restored from the durable changelog on restart — **0.00% data loss, verified** (RTO: 2.14 s).
+- A FastAPI + React Flow dashboard gives fleet operators a live operational view of the entire pipeline.
+
+This turns a slow, postmortem batch report into a **proactive real-time control loop** — catching compressor failures before cargo is lost.
+
+---
+
+## 5. Verified SLA Outcomes
+
+| SLA | Target | Measured |
+|:---|:---|:---|
+| Throughput | ≥ 10,000 ev/s | **> 13,000 ev/s** |
+| Processing latency p95 | < 20 ms | **< 0.15 ms** |
+| State loss on crash (RPO) | 0.00% | **0.00%** (500/500 trucks recovered) |
+| Worker recovery time (RTO) | < 5.0 s | **2.14 s** |
+| Out-of-order tolerance | 30 s grace | **Implemented** |
+
+Evidence: [`docs/evidence/chaos_failover_log.md`](evidence/chaos_failover_log.md) · [`docs/evidence/throughput_benchmark.md`](evidence/throughput_benchmark.md)

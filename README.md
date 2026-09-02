@@ -11,40 +11,75 @@
 
 ---
 
-## 1. Problem Statement & Architecture Overview
+## 1. The Problem — Cold-Chain at Scale
 
-FleetPulse operates a refrigerated logistics network spanning more than 50,000 vehicles. A single compressor fault or temperature excursion can push cargo beyond safe limits in under 30 minutes, causing product loss, regulatory risk, and expensive insurance claims. The existing batch pipeline reports incidents 12 hours late, which is far beyond the window needed to intervene.
+| | Before StreamForge | After StreamForge |
+|:---|:---|:---|
+| **Detection latency** | 12 hours (nightly batch ETL) | **< 1 second** (continuous stream) |
+| **Cargo at risk** | Entire trailer load spoils before alert | Operator notified within milliseconds |
+| **Alerting model** | Manual review of next-day reports | Autonomous webhook dispatch to dispatch center |
+| **Scale** | Single-tenant, single batch | 50,000 trucks · 5 tenants · > 13,000 ev/s |
 
-StreamForge solves this by processing telemetry as a real-time stream: it ingests truck-level sensor events, maintains per-vehicle state, computes rolling temperature averages, detects anomalies in seconds, and preserves state across worker failures using Kafka-backed changelogs.
+**Client:** FleetPulse Analytics — a SaaS logistics platform managing nationwide refrigerated fleets.  
 
-```mermaid
-flowchart LR
-    T[50k refrigerated trucks\n5 tenant fleets\nIoT telemetry] --> K[Kafka raw-telemetry]
-    K --> W1[Stream workers]
-    K --> W2[Stream workers]
+**The Pain:** Their enterprise customer runs **50,000 refrigerated trucks** hauling temperature-critical cargo — frozen vaccines, dairy, seafood, fresh produce. Cargo must stay within a **−25 °C to −10 °C** band. A compressor failure causes irreversible spoilage within **30 minutes**. The previous system ran a nightly batch ETL job, meaning fleet managers received alerts **12 hours too late** — after the damage was already done. Each incident cost tens of thousands of dollars in destroyed inventory, insurance claims, and regulatory exposure.
 
-    W1 --> S1[(RocksDB state store)]
-    W2 --> S2[(RocksDB state store)]
-    W1 --> C[Kafka changelog]
-    W2 --> C
+**The Solution:** StreamForge — a Python-native, high-throughput distributed stream processor that replaces the batch loop with a **continuous, stateful event pipeline**:
+- **Apache Kafka (KRaft mode)** for partitioned, durable telemetry ingestion
+- **Distributed aiokafka workers** with **RocksDB local state** for sub-millisecond per-truck rolling windows
+- **Kafka changelog replication** for 0.00% state loss across worker crashes (RTO < 2.2 s, verified)
+- **FastAPI + WebSockets** for live operational visibility
+- **Autonomous anomaly engine** with async webhook dispatch to incident centers
 
-    W1 --> P[Processed averages]
-    W1 --> A[Alert stream]
-    W2 --> P
-    W2 --> A
-
-    P --> API[FastAPI + WebSocket API]
-    A --> H[Async webhook dispatcher]
-    API --> UI[React dashboard]
-    API --> M[Prometheus metrics]
-    H --> E[Fleet incident center]
-```
-
-This architecture keeps ingestion high-throughput, processing local to each worker, and recovery deterministic. The result is a system that can react within seconds instead of hours while preserving state durability when a worker crashes.
+> See full requirements: [`docs/problem_statement.md`](docs/problem_statement.md) · [`docs/PROJECT_SCOPE.md`](docs/PROJECT_SCOPE.md)
 
 ---
 
-## 2. Feature Matrix
+## 2. Distributed Architecture
+
+![StreamForge Architecture — Four-tier distributed stream processing pipeline](docs/architecture_diagram.jpg)
+
+> _Four-tier pipeline: Ingestion → Stream Processing → API & Observability → React Dashboard._  
+> Full diagram source and tier-by-tier breakdown: [`docs/architecture_overview.md`](docs/architecture_overview.md)
+
+### Mermaid (source-controlled)
+
+```mermaid
+flowchart TD
+    subgraph Ingestion["⬡ Tier 1 — Ingestion"]
+        TP["Multi-Tenant Telemetry Simulator\n50k Trucks · 5 Tenants · Fault Injection"]
+        TP -->|"Key: customer_id:truck_id"| KR_RAW["Kafka: raw-telemetry\n6 Partitions · KRaft Mode"]
+    end
+
+    subgraph Processing["⚙ Tier 2 — Stream Processing"]
+        KR_RAW --> W1["Worker 01\nPartitions 0–2"]
+        KR_RAW --> W2["Worker 02\nPartitions 3–5"]
+
+        W1 <-->|"Hot-path R/W"| RDB1[("RocksDB\nState Store")]
+        W2 <-->|"Hot-path R/W"| RDB2[("RocksDB\nState Store")]
+
+        W1 & W2 -->|"Changelog sync"| KR_CHANGE["Kafka: changelog-topic\n(Compacted · Durable Recovery)"]
+        W1 & W2 -->|"5-min rolling avg"| KR_PROC["Kafka: processed-averages"]
+        W1 & W2 -->|"Threshold breach"| KR_ALERT["Kafka: alerts-topic"]
+    end
+
+    subgraph Backend["🔭 Tier 3 — API & Observability"]
+        KR_ALERT --> WHD["Async Webhook Dispatcher\n(Exp. Backoff · Retry)"]
+        WHD -->|"HTTP POST"| EXT["Fleet Dispatch Center"]
+
+        KR_PROC --> API["FastAPI Engine"]
+        AUTH["JWT Auth · RBAC"] --> API
+        API -->|"Prometheus scrape"| PROM["/metrics"]
+    end
+
+    subgraph Frontend["📊 Tier 4 — Live Dashboard"]
+        API <-->|"WebSocket stream"| UI["React Flow Topology\n+ Recharts Telemetry Graphs"]
+    end
+```
+
+---
+
+## 3.  Feature Matrix
 
 | Feature | Minimum Specification Bar | StreamForge Top-Performer Implementation | Status |
 | :--- | :--- | :--- | :--- |
@@ -60,7 +95,7 @@ This architecture keeps ingestion high-throughput, processing local to each work
 
 ---
 
-## 3. Quickstart Guide
+## 4. Quickstart Guide
 
 ### Prerequisites
 - Python 3.11+
@@ -108,7 +143,7 @@ docker-compose up -d --build
 
 ---
 
-## 4. Verification & Testing Evidence
+## 5. Verification & Testing Evidence
 
 ### Automated Test Suite
 - **Unit Tests:** `pytest tests/ -v` (10 passing unit tests verifying tumbling window math, out-of-order grace watermark, threshold breaches, and JWT security).
@@ -117,5 +152,5 @@ docker-compose up -d --build
 
 ---
 
-## 5. Demo Script & Review Presentation
+## 6. Demo Script & Review Presentation
 Reviewers can follow the step-by-step 2-minute pitch guide in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
