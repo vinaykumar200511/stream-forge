@@ -1,6 +1,8 @@
 # Core Stream Processing & Messaging
 confluent-kafka>=2.4.0
 aiokafka>=0.11.0
+# faust-streaming[rocksdb]>=0.10.0  # use this on Linux / Docker (requires pkg-config + librocksdb)
+faust-streaming>=0.10.0             # base install on Windows (RocksDB extra not available without pkg-config)
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
 
