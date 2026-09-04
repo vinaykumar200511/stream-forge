@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import json
+from typing import Any, Mapping
 
 import faust
+from pydantic import ValidationError
 
 from streamforge.common.config import settings
 from streamforge.common.models import AnomalyAlert, ProcessedAggregate, RawTelemetryEvent
@@ -25,7 +28,8 @@ app = faust.App(
 raw_telemetry_topic = app.topic(
     settings.KAFKA_RAW_TOPIC,
     key_type=str,
-    value_type=RawTelemetryEvent,
+    # Keep the wire payload opaque so malformed records can be dropped by the topology.
+    value_type=bytes,
     partitions=settings.KAFKA_NUM_PARTITIONS,
 )
 
@@ -67,6 +71,64 @@ logger.info(
     settings.KAFKA_BOOTSTRAP_SERVERS,
 )
 
+
+def _parse_raw_event(value: Any) -> RawTelemetryEvent:
+    """Parse a Kafka payload into the validated raw telemetry contract."""
+    if isinstance(value, RawTelemetryEvent):
+        return value
+    if isinstance(value, bytes):
+        return RawTelemetryEvent.model_validate_json(value)
+    if isinstance(value, str):
+        return RawTelemetryEvent.model_validate_json(value)
+    if isinstance(value, Mapping):
+        return RawTelemetryEvent.model_validate(value)
+    raise TypeError(f"Unsupported telemetry payload type: {type(value).__name__}")
+
+
+def is_valid_telemetry(key: str, value: Any) -> bool:
+    """Accept only valid telemetry packets whose temperature is above zero."""
+    try:
+        event = _parse_raw_event(value)
+    except (TypeError, ValueError, ValidationError, json.JSONDecodeError):
+        logger.warning("Dropping malformed telemetry record for key=%s", key)
+        return False
+    return event.temperature > 0
+
+
+def normalize_telemetry(key: str, value: Any) -> dict[str, Any]:
+    """Map a validated raw packet to the schema consumed by later stages."""
+    event = _parse_raw_event(value)
+    return {
+        "event_id": event.event_id,
+        "timestamp": event.timestamp,
+        "customer_id": event.customer_id,
+        "truck_id": event.truck_id,
+        "route_id": event.route_id,
+        "temperature": event.temperature,
+        "target_temperature": event.target_temp,
+        "ambient_temperature": event.ambient_temp,
+        "compressor_status": event.compressor_status.value,
+        "door_open": event.door_open,
+        "battery_level": event.battery_level,
+        "latitude": event.latitude,
+        "longitude": event.longitude,
+        "speed_kmh": event.speed_kmh,
+    }
+
+
+telemetry_stream = (
+    raw_telemetry_topic.stream()
+    .filter(is_valid_telemetry)
+)
+
+
+@app.agent(telemetry_stream)
+async def consume_normalized_telemetry(stream):
+    """Consume the filter/map output until a downstream sink is configured."""
+    async for key, event in stream.items():
+        normalized_event = normalize_telemetry(key, event)
+        logger.debug("Normalized telemetry received for key=%s: %s", key, normalized_event)
+
 __all__ = [
     "app",
     "raw_telemetry_topic",
@@ -74,4 +136,7 @@ __all__ = [
     "alerts_topic",
     "changelog_topic",
     "truck_state_table",
+    "telemetry_stream",
+    "is_valid_telemetry",
+    "normalize_telemetry",
 ]
