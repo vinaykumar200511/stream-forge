@@ -5,9 +5,11 @@ from streamforge.common.models import (
     AlertType,
     AnomalyAlert,
     CompressorStatus,
+    NormalizedTelemetryEvent,
     ProcessedAggregate,
     RawTelemetryEvent,
 )
+
 
 
 def test_raw_telemetry_event_creation():
@@ -94,3 +96,26 @@ def test_anomaly_alert_model():
     assert alert.kafka_key == "cust_01:trk_01_0001"
     assert alert.severity == AlertSeverity.CRITICAL
     assert alert.alert_type == AlertType.HIGH_TEMPERATURE
+
+
+def test_normalized_telemetry_event_creation():
+    norm = NormalizedTelemetryEvent(
+        event_id="evt-123",
+        timestamp=1700000000.0,
+        customer_id="cust_01",
+        truck_id="trk_01_0001",
+        route_id="route_101",
+        temperature=4.5,
+        target_temperature=-18.0,
+        ambient_temperature=22.0,
+        compressor_status=CompressorStatus.RUNNING,
+        door_open=False,
+        battery_level=95.0,
+        latitude=37.7749,
+        longitude=-122.4194,
+        speed_kmh=60.0,
+    )
+    assert norm.kafka_key == "cust_01:trk_01_0001"
+    assert norm.target_temperature == -18.0
+    assert norm.ambient_temperature == 22.0
+

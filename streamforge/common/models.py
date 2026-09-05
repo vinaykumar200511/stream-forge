@@ -64,6 +64,31 @@ class RawTelemetryEvent(BaseModel):
         return v.strip()
 
 
+class NormalizedTelemetryEvent(BaseModel):
+    """
+    Normalized telemetry schema produced by the stream processor Map stage.
+    """
+    event_id: str
+    timestamp: float
+    customer_id: str
+    truck_id: str
+    route_id: str
+    temperature: float
+    target_temperature: float
+    ambient_temperature: float
+    compressor_status: CompressorStatus = Field(default=CompressorStatus.RUNNING)
+    door_open: bool
+    battery_level: float
+    latitude: float
+    longitude: float
+    speed_kmh: float
+
+    @property
+    def kafka_key(self) -> str:
+        return f"{self.customer_id}:{self.truck_id}"
+
+
+
 class ProcessedAggregate(BaseModel):
     """
     Continuous rolling / tumbling window aggregate for a single truck.

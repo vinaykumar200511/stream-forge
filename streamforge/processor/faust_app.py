@@ -10,7 +10,7 @@ import faust
 from pydantic import ValidationError
 
 from streamforge.common.config import settings
-from streamforge.common.models import AnomalyAlert, ProcessedAggregate, RawTelemetryEvent
+from streamforge.common.models import AnomalyAlert, NormalizedTelemetryEvent, ProcessedAggregate, RawTelemetryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -86,34 +86,38 @@ def _parse_raw_event(value: Any) -> RawTelemetryEvent:
 
 
 def is_valid_telemetry(key: str, value: Any) -> bool:
-    """Accept only valid telemetry packets whose temperature is above zero."""
+    """Accept only valid telemetry packets whose temperature is strictly above zero."""
     try:
         event = _parse_raw_event(value)
-    except (TypeError, ValueError, ValidationError, json.JSONDecodeError):
+    except (TypeError, ValueError, ValidationError, json.JSONDecodeError, AttributeError):
         logger.warning("Dropping malformed telemetry record for key=%s", key)
         return False
-    return event.temperature > 0
+    if event.temperature is None or event.temperature <= 0:
+        logger.debug("Dropping telemetry with non-positive temperature for key=%s: temp=%s", key, event.temperature)
+        return False
+    return True
 
 
 def normalize_telemetry(key: str, value: Any) -> dict[str, Any]:
-    """Map a validated raw packet to the schema consumed by later stages."""
+    """Map a validated raw packet to the normalized schema consumed by later stages."""
     event = _parse_raw_event(value)
-    return {
-        "event_id": event.event_id,
-        "timestamp": event.timestamp,
-        "customer_id": event.customer_id,
-        "truck_id": event.truck_id,
-        "route_id": event.route_id,
-        "temperature": event.temperature,
-        "target_temperature": event.target_temp,
-        "ambient_temperature": event.ambient_temp,
-        "compressor_status": event.compressor_status.value,
-        "door_open": event.door_open,
-        "battery_level": event.battery_level,
-        "latitude": event.latitude,
-        "longitude": event.longitude,
-        "speed_kmh": event.speed_kmh,
-    }
+    normalized = NormalizedTelemetryEvent(
+        event_id=event.event_id,
+        timestamp=event.timestamp,
+        customer_id=event.customer_id,
+        truck_id=event.truck_id,
+        route_id=event.route_id,
+        temperature=event.temperature,
+        target_temperature=event.target_temp,
+        ambient_temperature=event.ambient_temp,
+        compressor_status=event.compressor_status,
+        door_open=event.door_open,
+        battery_level=event.battery_level,
+        latitude=event.latitude,
+        longitude=event.longitude,
+        speed_kmh=event.speed_kmh,
+    )
+    return normalized.model_dump(mode="json")
 
 
 telemetry_stream = (
@@ -129,6 +133,7 @@ async def consume_normalized_telemetry(stream):
         normalized_event = normalize_telemetry(key, event)
         logger.debug("Normalized telemetry received for key=%s: %s", key, normalized_event)
 
+
 __all__ = [
     "app",
     "raw_telemetry_topic",
@@ -139,4 +144,5 @@ __all__ = [
     "telemetry_stream",
     "is_valid_telemetry",
     "normalize_telemetry",
-]
+    "NormalizedTelemetryEvent",
+]

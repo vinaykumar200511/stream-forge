@@ -1,4 +1,4 @@
-import { Background, Controls, MiniMap, ReactFlow } from "@xyflow/react";
+import { Background, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
 
@@ -104,10 +104,13 @@ function App() {
         </div>
 
         <div className="flow-container">
-          <ReactFlow nodes={nodes} edges={edges} fitView>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
             <Background />
-            <Controls />
-            <MiniMap />
           </ReactFlow>
         </div>
       </section>
