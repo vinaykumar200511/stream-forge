@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import logging
 import json
 from typing import Any, Mapping
@@ -10,7 +11,15 @@ import faust
 from pydantic import ValidationError
 
 from streamforge.common.config import settings
-from streamforge.common.models import AnomalyAlert, NormalizedTelemetryEvent, ProcessedAggregate, RawTelemetryEvent
+from streamforge.common.models import (
+    AlertSeverity,
+    AlertType,
+    AnomalyAlert,
+    CompressorStatus,
+    NormalizedTelemetryEvent,
+    ProcessedAggregate,
+    RawTelemetryEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +129,119 @@ def normalize_telemetry(key: str, value: Any) -> dict[str, Any]:
     return normalized.model_dump(mode="json")
 
 
+def calculate_window_bounds(
+    timestamp: float,
+    window_size: int = settings.WINDOW_SIZE_SECONDS,
+) -> tuple[float, float]:
+    """Calculate tumbling window start and end timestamps for a given event timestamp."""
+    window_start = float((int(timestamp) // window_size) * window_size)
+    window_end = window_start + float(window_size)
+    return window_start, window_end
+
+
+def create_initial_window_state(
+    event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent,
+    window_start: float,
+    window_end: float,
+) -> dict[str, Any]:
+    """Initialize a new aggregation state dictionary for a tumbling window bucket."""
+    if hasattr(event, "model_dump"):
+        event_dict = event.model_dump(mode="json")
+    elif isinstance(event, dict):
+        event_dict = event
+    else:
+        event_dict = dict(event)
+
+    customer_id = str(event_dict["customer_id"])
+    truck_id = str(event_dict["truck_id"])
+    temp = float(event_dict["temperature"])
+    target_temp = float(event_dict.get("target_temperature", event_dict.get("target_temp", -18.0)))
+
+    return {
+        "customer_id": customer_id,
+        "truck_id": truck_id,
+        "window_start": window_start,
+        "window_end": window_end,
+        "sample_count": 1,
+        "sum_temperature": temp,
+        "min_temperature": temp,
+        "max_temperature": temp,
+        "target_temperature": target_temp,
+    }
+
+
+def update_window_state(
+    state: dict[str, Any],
+    event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent,
+) -> dict[str, Any]:
+    """Update an existing aggregation state dictionary with a new telemetry reading."""
+    if hasattr(event, "model_dump"):
+        event_dict = event.model_dump(mode="json")
+    elif isinstance(event, dict):
+        event_dict = event
+    else:
+        event_dict = dict(event)
+
+    temp = float(event_dict["temperature"])
+    target_temp = float(
+        event_dict.get("target_temperature", event_dict.get("target_temp", state.get("target_temperature", -18.0)))
+    )
+
+    new_state = dict(state)
+    new_state["sample_count"] = int(new_state["sample_count"]) + 1
+    new_state["sum_temperature"] = float(new_state["sum_temperature"]) + temp
+    new_state["min_temperature"] = min(float(new_state["min_temperature"]), temp)
+    new_state["max_temperature"] = max(float(new_state["max_temperature"]), temp)
+    new_state["target_temperature"] = target_temp
+    return new_state
+
+
+def build_processed_aggregate(state: dict[str, Any]) -> ProcessedAggregate:
+    """Build a validated ProcessedAggregate Pydantic model from an aggregation state dictionary."""
+    sample_count = int(state["sample_count"])
+    sum_temp = float(state["sum_temperature"])
+    avg_temp = round(sum_temp / sample_count, 2)
+    is_breached = (avg_temp > settings.SAFE_TEMP_MAX) or (avg_temp < settings.SAFE_TEMP_MIN)
+
+    return ProcessedAggregate(
+        customer_id=str(state["customer_id"]),
+        truck_id=str(state["truck_id"]),
+        window_start=float(state["window_start"]),
+        window_end=float(state["window_end"]),
+        sample_count=sample_count,
+        avg_temperature=avg_temp,
+        min_temperature=round(float(state["min_temperature"]), 2),
+        max_temperature=round(float(state["max_temperature"]), 2),
+        target_temperature=round(float(state["target_temperature"]), 2),
+        is_breached=is_breached,
+    )
+
+
+def process_telemetry_event(
+    event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent,
+    current_state: dict[str, Any] | None = None,
+    window_size: int = settings.WINDOW_SIZE_SECONDS,
+) -> tuple[dict[str, Any], ProcessedAggregate]:
+    """Process a telemetry event into a 5-minute tumbling window aggregate grouped by (customer_id, truck_id)."""
+    if hasattr(event, "model_dump"):
+        event_dict = event.model_dump(mode="json")
+    elif isinstance(event, dict):
+        event_dict = event
+    else:
+        event_dict = dict(event)
+
+    ts = float(event_dict["timestamp"])
+    w_start, w_end = calculate_window_bounds(ts, window_size=window_size)
+
+    if current_state is None or current_state.get("window_start") != w_start:
+        updated_state = create_initial_window_state(event_dict, w_start, w_end)
+    else:
+        updated_state = update_window_state(current_state, event_dict)
+
+    aggregate = build_processed_aggregate(updated_state)
+    return updated_state, aggregate
+
+
 telemetry_stream = (
     raw_telemetry_topic.stream()
     .filter(is_valid_telemetry)
@@ -128,10 +250,59 @@ telemetry_stream = (
 
 @app.agent(telemetry_stream)
 async def consume_normalized_telemetry(stream):
-    """Consume the filter/map output until a downstream sink is configured."""
+    """Consume filter/map telemetry events, aggregate into 5-minute tumbling windows grouped by (customer_id, truck_id),
+    and emit ProcessedAggregate records."""
     async for key, event in stream.items():
         normalized_event = normalize_telemetry(key, event)
         logger.debug("Normalized telemetry received for key=%s: %s", key, normalized_event)
+
+        cust_id = normalized_event["customer_id"]
+        trk_id = normalized_event["truck_id"]
+        group_key = f"{cust_id}:{trk_id}"
+
+        current_state = None
+        try:
+            if group_key in truck_state_table:
+                win_val = truck_state_table[group_key]
+                if hasattr(win_val, "current"):
+                    current_state = win_val.current()
+                elif isinstance(win_val, dict):
+                    current_state = win_val
+        except Exception:
+            current_state = None
+
+        updated_state, aggregate = process_telemetry_event(normalized_event, current_state)
+
+        try:
+            truck_state_table[group_key] = updated_state
+        except Exception as err:
+            logger.warning("Could not update truck_state_table for key=%s: %s", group_key, err)
+
+        await processed_topic.send(key=group_key, value=aggregate)
+
+        temp = float(normalized_event["temperature"])
+        comp_status = normalized_event.get("compressor_status")
+        if comp_status == CompressorStatus.FAULT or temp > settings.SAFE_TEMP_MAX:
+            severity = AlertSeverity.CRITICAL if comp_status == CompressorStatus.FAULT else AlertSeverity.WARNING
+            alert_type = AlertType.COMPRESSOR_FAILURE if comp_status == CompressorStatus.FAULT else AlertType.HIGH_TEMPERATURE
+            msg = (
+                f"Compressor FAULT detected on vehicle {trk_id}"
+                if comp_status == CompressorStatus.FAULT
+                else f"High thermal excursion on vehicle {trk_id}: {temp}°C exceeds limit {settings.SAFE_TEMP_MAX}°C"
+            )
+            alert = AnomalyAlert(
+                customer_id=cust_id,
+                truck_id=trk_id,
+                severity=severity,
+                alert_type=alert_type,
+                trigger_temperature=temp,
+                target_temperature=float(normalized_event.get("target_temperature", -18.0)),
+                threshold_limit=settings.SAFE_TEMP_MAX,
+                compressor_status=comp_status or CompressorStatus.FAULT,
+                timestamp=float(normalized_event.get("timestamp", time.time())),
+                message=msg,
+            )
+            await alerts_topic.send(key=group_key, value=alert)
 
 
 __all__ = [
@@ -145,4 +316,9 @@ __all__ = [
     "is_valid_telemetry",
     "normalize_telemetry",
     "NormalizedTelemetryEvent",
+    "calculate_window_bounds",
+    "create_initial_window_state",
+    "update_window_state",
+    "build_processed_aggregate",
+    "process_telemetry_event",
 ]
