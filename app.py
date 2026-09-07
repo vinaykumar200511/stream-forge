@@ -1,5 +1,6 @@
 import faust
 from datetime import timedelta
+import time
 
 # Faust application, pointed at local Kafka
 app = faust.App(
@@ -25,6 +26,12 @@ class RawTelemetryEvent(faust.Record, serializer='json'):
     longitude: float
     speed_kmh: float
 
+    # Tell Faust to use THIS field as the event's timestamp for windowing,
+    # instead of the time the message happened to be processed/received.
+    def faust_timestamp(self) -> float:
+        return self.timestamp
+
+
 # Simplified, mapped shape fed into windowing
 class MappedReading(faust.Record, serializer='json'):
     customer_id: str
@@ -37,28 +44,24 @@ class MappedReading(faust.Record, serializer='json'):
 class WindowStats(faust.Record, serializer='json'):
     count: int = 0
     total_temp: float = 0.0
-    min_temp: float = 999.0   # will be overwritten on first real reading
-    max_temp: float = -999.0  # will be overwritten on first real reading
+    min_temp: float = 999.0
+    max_temp: float = -999.0
 
 # Matches streamforge/common/config.py -> KAFKA_RAW_TOPIC (default: "raw-telemetry")
 raw_topic = app.topic('raw-telemetry', value_type=RawTelemetryEvent)
 
-# Sane physical bounds for a sensor reading — anything outside this is a glitch.
 SENSOR_MIN_PLAUSIBLE_TEMP = -60.0
 SENSOR_MAX_PLAUSIBLE_TEMP = 60.0
 
-# Matches streamforge/common/config.py -> SAFE_TEMP_MIN / SAFE_TEMP_MAX
 SAFE_TEMP_MIN = -25.0
 SAFE_TEMP_MAX = -10.0
 
-# Matches streamforge/common/config.py windowing settings
-WINDOW_SIZE_SECONDS = 300   # 5-minute windows
-WINDOW_SLIDE_SECONDS = 10   # hopping every 10 seconds
-GRACE_PERIOD_SECONDS = 30   # late events still accepted (Day 5)
+WINDOW_SIZE_SECONDS = 300
+WINDOW_SLIDE_SECONDS = 10
+GRACE_PERIOD_SECONDS = 30  # late events up to 30s old are still accepted
 
 
 def map_event(event: RawTelemetryEvent) -> MappedReading:
-    """Reshape a raw telemetry event and flag whether it breaches the safe range."""
     is_breach = not (SAFE_TEMP_MIN <= event.temperature <= SAFE_TEMP_MAX)
     return MappedReading(
         customer_id=event.customer_id,
@@ -70,7 +73,6 @@ def map_event(event: RawTelemetryEvent) -> MappedReading:
 
 
 def update_stats(current: WindowStats, temp: float) -> WindowStats:
-    """Fold a new temperature reading into the running window stats."""
     is_first = current.count == 0
     return WindowStats(
         count=current.count + 1,
@@ -80,8 +82,19 @@ def update_stats(current: WindowStats, temp: float) -> WindowStats:
     )
 
 
+def is_too_late(event_timestamp: float, current_time: float) -> bool:
+    """
+    An event is considered unrecoverably late (its window has already closed
+    and won't reopen) if it arrives older than the grace period allows.
+    """
+    lateness = current_time - event_timestamp
+    return lateness > (WINDOW_SIZE_SECONDS + GRACE_PERIOD_SECONDS)
+
+
 # Windowed table: keyed by "customer_id:truck_id", tracks running stats
 # across a 5-minute hopping window that advances every 10 seconds.
+# expires= gives late events up to GRACE_PERIOD_SECONDS extra time to land
+# in their correct window before that window is finalized and discarded.
 temp_windows = app.Table(
     'temp-windows',
     default=WindowStats,
@@ -94,11 +107,14 @@ temp_windows = app.Table(
 
 @app.agent(raw_topic)
 async def process_telemetry(events):
-    # Repartition the stream so all events for the same truck land on the
-    # same worker/partition — required for correct per-truck windowing.
     async for event in events.group_by(lambda e: f"{e.customer_id}:{e.truck_id}"):
         # --- Filter stage: drop physically impossible sensor glitches ---
         if not (SENSOR_MIN_PLAUSIBLE_TEMP <= event.temperature <= SENSOR_MAX_PLAUSIBLE_TEMP):
+            continue
+
+        # --- Late-arrival guard: drop events too old to matter anymore ---
+        if is_too_late(event.timestamp, time.time()):
+            print(f"[DROPPED - too late] truck={event.truck_id} timestamp={event.timestamp}")
             continue
 
         # --- Map stage: reshape + flag breach status ---
