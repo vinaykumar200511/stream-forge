@@ -156,6 +156,37 @@ def test_tumbling_window_transition_after_5_minutes():
     assert agg2.avg_temperature == -22.0
 
 
+def test_late_event_within_grace_updates_its_original_window():
+    base_ts = 1787725800.0
+    first = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-18.0, timestamp=base_ts + 299)
+    next_window = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-22.0, timestamp=base_ts + 320)
+    late = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-14.0, timestamp=base_ts + 299.5)
+
+    state, _ = process_telemetry_event(normalize_telemetry(first.kafka_key, first), None)
+    state, _ = process_telemetry_event(normalize_telemetry(next_window.kafka_key, next_window), state)
+    state, aggregate = process_telemetry_event(normalize_telemetry(late.kafka_key, late), state)
+
+    assert aggregate.window_start == base_ts
+    assert aggregate.sample_count == 2
+    assert aggregate.avg_temperature == -16.0
+    assert state["window_start"] == base_ts + 300
+
+
+def test_late_event_past_grace_does_not_change_aggregate():
+    base_ts = 1787725800.0
+    first = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-18.0, timestamp=base_ts + 100)
+    next_window = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-22.0, timestamp=base_ts + 350)
+    late = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-14.0, timestamp=base_ts + 100)
+
+    state, _ = process_telemetry_event(normalize_telemetry(first.kafka_key, first), None)
+    state, _ = process_telemetry_event(normalize_telemetry(next_window.kafka_key, next_window), state)
+    state, aggregate = process_telemetry_event(normalize_telemetry(late.kafka_key, late), state)
+
+    assert aggregate.window_start == base_ts + 300
+    assert aggregate.sample_count == 1
+    assert aggregate.avg_temperature == -22.0
+
+
 def test_tumbling_window_breach_flag():
     base_ts = 1787725800.0
     e_breached = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=5.0, timestamp=base_ts + 10)

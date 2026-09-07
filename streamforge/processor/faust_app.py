@@ -196,6 +196,41 @@ def update_window_state(
     return new_state
 
 
+def _event_dict(event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent) -> dict[str, Any]:
+    if hasattr(event, "model_dump"):
+        return event.model_dump(mode="json")
+    if isinstance(event, dict):
+        return event
+    return dict(event)
+
+
+def _window_states(state: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not state:
+        return {}
+    stored_windows = state.get("windows")
+    if isinstance(stored_windows, dict):
+        return {str(key): dict(value) for key, value in stored_windows.items()}
+    if "window_start" in state:
+        return {str(float(state["window_start"])): dict(state)}
+    return {}
+
+
+def _state_for_window(
+    windows: dict[str, dict[str, Any]],
+    event: dict[str, Any],
+    window_start: float,
+    window_end: float,
+) -> dict[str, Any]:
+    window_key = str(window_start)
+    current_window = windows.get(window_key)
+    if current_window is None:
+        current_window = create_initial_window_state(event, window_start, window_end)
+    else:
+        current_window = update_window_state(current_window, event)
+    windows[window_key] = current_window
+    return current_window
+
+
 def build_processed_aggregate(state: dict[str, Any]) -> ProcessedAggregate:
     """Build a validated ProcessedAggregate Pydantic model from an aggregation state dictionary."""
     sample_count = int(state["sample_count"])
@@ -221,24 +256,40 @@ def process_telemetry_event(
     event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent,
     current_state: dict[str, Any] | None = None,
     window_size: int = settings.WINDOW_SIZE_SECONDS,
+    grace_period: int = settings.GRACE_PERIOD_SECONDS,
 ) -> tuple[dict[str, Any], ProcessedAggregate]:
-    """Process a telemetry event into a 5-minute tumbling window aggregate grouped by (customer_id, truck_id)."""
-    if hasattr(event, "model_dump"):
-        event_dict = event.model_dump(mode="json")
-    elif isinstance(event, dict):
-        event_dict = event
-    else:
-        event_dict = dict(event)
+    """Aggregate an event-time window while accepting out-of-order events within the grace period."""
+    event_dict = _event_dict(event)
 
     ts = float(event_dict["timestamp"])
     w_start, w_end = calculate_window_bounds(ts, window_size=window_size)
+    windows = _window_states(current_state)
+    previous_max_timestamp = float((current_state or {}).get("max_event_timestamp", ts))
+    max_event_timestamp = max(previous_max_timestamp, ts)
+    watermark = max_event_timestamp - float(grace_period)
 
-    if current_state is None or current_state.get("window_start") != w_start:
-        updated_state = create_initial_window_state(event_dict, w_start, w_end)
-    else:
-        updated_state = update_window_state(current_state, event_dict)
+    if ts < watermark:
+        latest_window = max(windows.values(), key=lambda value: float(value["window_start"]))
+        return {
+            **latest_window,
+            "windows": windows,
+            "max_event_timestamp": max_event_timestamp,
+        }, build_processed_aggregate(latest_window)
 
-    aggregate = build_processed_aggregate(updated_state)
+    updated_window = _state_for_window(windows, event_dict, w_start, w_end)
+    for window_key in list(windows):
+        candidate = windows[window_key]
+        if float(candidate["window_end"]) + float(grace_period) < watermark:
+            del windows[window_key]
+
+    latest_window = max(windows.values(), key=lambda value: float(value["window_start"]))
+    updated_state = {
+        **latest_window,
+        "windows": windows,
+        "max_event_timestamp": max_event_timestamp,
+    }
+
+    aggregate = build_processed_aggregate(updated_window)
     return updated_state, aggregate
 
 
@@ -321,4 +372,4 @@ __all__ = [
     "update_window_state",
     "build_processed_aggregate",
     "process_telemetry_event",
-]
+]
