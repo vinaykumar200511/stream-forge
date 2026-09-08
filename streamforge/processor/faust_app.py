@@ -20,6 +20,7 @@ from streamforge.common.models import (
     ProcessedAggregate,
     RawTelemetryEvent,
 )
+from streamforge.processor.state_store import LocalStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ truck_state_table = app.Table(
     size=settings.WINDOW_SIZE_SECONDS,
     expires=settings.WINDOW_SIZE_SECONDS * 4,
 )
+
+local_state_store = LocalStateStore(settings.ROCKSDB_STATE_DIR)
 
 logger.info(
     "Faust app '%s' initialized | broker=%s",
@@ -311,9 +314,9 @@ async def consume_normalized_telemetry(stream):
         trk_id = normalized_event["truck_id"]
         group_key = f"{cust_id}:{trk_id}"
 
-        current_state = None
+        current_state = local_state_store.current(group_key)
         try:
-            if group_key in truck_state_table:
+            if current_state is None and group_key in truck_state_table:
                 win_val = truck_state_table[group_key]
                 if hasattr(win_val, "current"):
                     current_state = win_val.current()
@@ -325,6 +328,7 @@ async def consume_normalized_telemetry(stream):
         updated_state, aggregate = process_telemetry_event(normalized_event, current_state)
 
         try:
+            local_state_store[group_key] = updated_state
             truck_state_table[group_key] = updated_state
         except Exception as err:
             logger.warning("Could not update truck_state_table for key=%s: %s", group_key, err)
@@ -363,6 +367,7 @@ __all__ = [
     "alerts_topic",
     "changelog_topic",
     "truck_state_table",
+    "local_state_store",
     "telemetry_stream",
     "is_valid_telemetry",
     "normalize_telemetry",
