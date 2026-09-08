@@ -187,6 +187,30 @@ def test_late_event_past_grace_does_not_change_aggregate():
     assert aggregate.avg_temperature == -22.0
 
 
+def test_late_event_with_empty_window_state_is_ignored_without_crashing():
+    base_ts = 1787725800.0
+    stale_event = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-16.0, timestamp=base_ts + 10)
+    current_state = {
+        "customer_id": "cust_01",
+        "truck_id": "truck_01",
+        "window_start": base_ts,
+        "window_end": base_ts + 300,
+        "sample_count": 1,
+        "sum_temperature": -18.0,
+        "min_temperature": -18.0,
+        "max_temperature": -18.0,
+        "target_temperature": -18.0,
+        "windows": {},
+        "max_event_timestamp": base_ts + 100,
+    }
+
+    state, agg = process_telemetry_event(normalize_telemetry(stale_event.kafka_key, stale_event), current_state)
+
+    assert agg.window_start == base_ts
+    assert agg.sample_count == 1
+    assert state["max_event_timestamp"] == base_ts + 100
+
+
 def test_tumbling_window_breach_flag():
     base_ts = 1787725800.0
     e_breached = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=5.0, timestamp=base_ts + 10)

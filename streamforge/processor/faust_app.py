@@ -272,6 +272,18 @@ def process_telemetry_event(
     watermark = max_event_timestamp - float(grace_period)
 
     if ts < watermark:
+        if not windows:
+            fallback_window = dict(current_state or {})
+            fallback_window.pop("windows", None)
+            fallback_window.pop("max_event_timestamp", None)
+            if not fallback_window:
+                fallback_window = create_initial_window_state(event_dict, w_start, w_end)
+            return {
+                **fallback_window,
+                "windows": windows,
+                "max_event_timestamp": max_event_timestamp,
+            }, build_processed_aggregate(fallback_window)
+
         latest_window = max(windows.values(), key=lambda value: float(value["window_start"]))
         return {
             **latest_window,
