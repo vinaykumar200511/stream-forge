@@ -1,6 +1,19 @@
+import { useEffect, useState } from "react";
 import { Background, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
+
+const initialMetrics = {
+  activeTrucks: 1248,
+  eventsPerSecond: 13400,
+  temperatureAlerts: 12,
+  fleetUptime: 99.2,
+};
+
+const formatNumber = (value) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: value >= 1000 ? 0 : 1,
+  }).format(value);
 
 const nodes = [
   {
@@ -60,38 +73,53 @@ const edges = [
 ];
 
 function App() {
+  const [metrics, setMetrics] = useState(initialMetrics);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setMetrics((current) => ({
+        activeTrucks: Math.max(1180, current.activeTrucks + Math.floor(Math.random() * 21) - 10),
+        eventsPerSecond: Math.max(9800, current.eventsPerSecond + Math.floor(Math.random() * 2400) - 1200),
+        temperatureAlerts: Math.max(4, current.temperatureAlerts + Math.floor(Math.random() * 5) - 2),
+        fleetUptime: Math.min(99.9, Math.max(98.4, Number((current.fleetUptime + (Math.random() * 0.3 - 0.15)).toFixed(1)))),
+      }));
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const statusLabel = metrics.eventsPerSecond > 10000 ? "System: Kafka Live" : "System: Stable";
+
   return (
     <main className="dashboard">
       <header className="header">
         <div>
           <p className="eyebrow">REAL-TIME FLEET INTELLIGENCE</p>
           <h1>Stream Forge</h1>
-          <p className="subtitle">
-            Truck telemetry pipeline monitoring dashboard
-          </p>
+          <p className="subtitle">Truck telemetry pipeline monitoring dashboard</p>
         </div>
-        <span className="status">System: Waiting for Kafka</span>
+        <span className="status">{statusLabel}</span>
       </header>
 
       <section className="cards">
         <div className="card">
           <span>Active Trucks</span>
-          <strong>0</strong>
+          <strong>{formatNumber(metrics.activeTrucks)}</strong>
         </div>
 
         <div className="card">
           <span>Events / Second</span>
-          <strong>0</strong>
+          <strong>{formatNumber(metrics.eventsPerSecond)}</strong>
         </div>
 
         <div className="card">
           <span>Temperature Alerts</span>
-          <strong>0</strong>
+          <strong>{metrics.temperatureAlerts}</strong>
         </div>
 
         <div className="card">
-          <span>Kafka Status</span>
-          <strong className="waiting">Waiting</strong>
+          <span>Fleet Uptime</span>
+          <strong className="waiting">{metrics.fleetUptime.toFixed(1)}%</strong>
         </div>
       </section>
 
