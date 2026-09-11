@@ -37,3 +37,15 @@ def test_prometheus_metrics_endpoint():
     assert "streamforge_telemetry_events_total" in content
     assert "streamforge_anomaly_alerts_total" in content
     assert "streamforge_active_trucks" in content
+
+
+def test_topology_endpoint():
+    """Verify GET /topology returns live DAG metadata for the React Flow view."""
+    response = client.get("/topology")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "nodes" in data and "edges" in data
+    assert len(data["nodes"]) >= 4
+    assert any(node["id"] == "producer" for node in data["nodes"])
+    assert any(edge["source"] == "producer" and edge["target"] == "kafka" for edge in data["edges"])

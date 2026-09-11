@@ -122,6 +122,28 @@ h1 {
   background: #0a1628;
 }
 
+.flow-container .react-flow {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(10, 22, 40, 0.96));
+}
+
+.flow-container .react-flow__node {
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.35);
+}
+
+.flow-container .react-flow__node-default {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.flow-container .react-flow__edge-text {
+  fill: #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 @media (max-width: 800px) {
   .dashboard {
     padding: 18px;
