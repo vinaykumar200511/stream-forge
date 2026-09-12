@@ -166,3 +166,57 @@ async def topology_view() -> Dict[str, Any]:
             {"id": "aggregator-dashboard", "source": "aggregator", "target": "dashboard", "animated": True, "label": "WebSocket"},
         ],
     }
+
+
+@app.get("/routes", tags=["Observability"])
+async def route_view() -> Dict[str, Any]:
+    """Return GPS route data for the movement visualization panel."""
+    return {
+        "status": "ok",
+        "service": "streamforge-backend",
+        "updated_at": round(time.time(), 3),
+        "vehicles": [
+            {
+                "id": "truck-204",
+                "name": "Truck 204",
+                "speed": 58,
+                "status": "moving",
+                "lat": 40.7128,
+                "lng": -74.0060,
+                "route": [
+                    {"lat": 40.7000, "lng": -74.0100},
+                    {"lat": 40.7060, "lng": -74.0200},
+                    {"lat": 40.7128, "lng": -74.0060},
+                    {"lat": 40.7200, "lng": -73.9900},
+                ],
+            },
+            {
+                "id": "truck-118",
+                "name": "Truck 118",
+                "speed": 45,
+                "status": "delayed",
+                "lat": 40.7484,
+                "lng": -73.9857,
+                "route": [
+                    {"lat": 40.7600, "lng": -73.9800},
+                    {"lat": 40.7560, "lng": -73.9880},
+                    {"lat": 40.7484, "lng": -73.9857},
+                    {"lat": 40.7420, "lng": -73.9770},
+                ],
+            },
+            {
+                "id": "truck-87",
+                "name": "Truck 87",
+                "speed": 62,
+                "status": "moving",
+                "lat": 40.7306,
+                "lng": -73.9352,
+                "route": [
+                    {"lat": 40.7400, "lng": -73.9500},
+                    {"lat": 40.7340, "lng": -73.9430},
+                    {"lat": 40.7306, "lng": -73.9352},
+                    {"lat": 40.7240, "lng": -73.9280},
+                ],
+            },
+        ],
+    }

@@ -10,6 +10,39 @@ const initialMetrics = {
   fleetUptime: 99.2,
 };
 
+const defaultRoutes = {
+  vehicles: [
+    {
+      id: "truck-204",
+      name: "Truck 204",
+      speed: 58,
+      status: "moving",
+      lat: 40.7128,
+      lng: -74.006,
+      route: [
+        { lat: 40.7000, lng: -74.01 },
+        { lat: 40.7060, lng: -74.02 },
+        { lat: 40.7128, lng: -74.006 },
+        { lat: 40.72, lng: -73.99 },
+      ],
+    },
+    {
+      id: "truck-118",
+      name: "Truck 118",
+      speed: 45,
+      status: "delayed",
+      lat: 40.7484,
+      lng: -73.9857,
+      route: [
+        { lat: 40.76, lng: -73.98 },
+        { lat: 40.756, lng: -73.988 },
+        { lat: 40.7484, lng: -73.9857 },
+        { lat: 40.742, lng: -73.977 },
+      ],
+    },
+  ],
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const formatNumber = (value) =>
@@ -111,6 +144,7 @@ const buildFallbackTopology = () => ({
 function App() {
   const [metrics, setMetrics] = useState(initialMetrics);
   const [topology, setTopology] = useState(buildFallbackTopology);
+  const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
@@ -158,17 +192,51 @@ function App() {
       }
     };
 
+    const fetchRoutes = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/routes`);
+        if (!response.ok) {
+          throw new Error(`Route fetch failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (isMounted && Array.isArray(data?.vehicles)) {
+          setRoutes({ vehicles: data.vehicles });
+        }
+      } catch (error) {
+        if (isMounted) {
+          setRoutes(defaultRoutes);
+        }
+      }
+    };
+
     fetchTopology();
-    const interval = window.setInterval(fetchTopology, 4000);
+    fetchRoutes();
+    const topologyInterval = window.setInterval(fetchTopology, 4000);
+    const routeInterval = window.setInterval(fetchRoutes, 5000);
 
     return () => {
       isMounted = false;
-      window.clearInterval(interval);
+      window.clearInterval(topologyInterval);
+      window.clearInterval(routeInterval);
     };
   }, []);
 
   const statusLabel = metrics.eventsPerSecond > 10000 ? "System: Kafka Live" : "System: Stable";
   const liveSummary = lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Fallback topology";
+
+  const mapBounds = {
+    minLat: 40.70,
+    maxLat: 40.77,
+    minLng: -74.03,
+    maxLng: -73.92,
+  };
+
+  const toMapPoint = (point) => {
+    const x = 24 + ((point.lng - mapBounds.minLng) / (mapBounds.maxLng - mapBounds.minLng || 1)) * 510;
+    const y = 228 - ((point.lat - mapBounds.minLat) / (mapBounds.maxLat - mapBounds.minLat || 1)) * 180;
+    return `${x},${y}`;
+  };
 
   return (
     <main className="dashboard">
@@ -223,6 +291,69 @@ function App() {
           >
             <Background />
           </ReactFlow>
+        </div>
+      </section>
+
+      <section className="route-panel">
+        <div className="section-title">
+          <div>
+            <h2>Movement Visualization</h2>
+            <p>GPS route tracking and truck movement</p>
+          </div>
+        </div>
+
+        <div className="route-layout">
+          <div className="route-map">
+            <svg viewBox="0 0 560 260" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Truck movement map">
+              <rect x="0" y="0" width="560" height="260" rx="14" fill="#0b1728" />
+              <g opacity="0.18" stroke="#38bdf8" strokeWidth="1">
+                {[...Array(8)].map((_, index) => (
+                  <line key={`h-${index}`} x1="20" x2="540" y1={26 + index * 28} y2={26 + index * 28} />
+                ))}
+                {[...Array(8)].map((_, index) => (
+                  <line key={`v-${index}`} x1={26 + index * 62} x2={26 + index * 62} y1="18" y2="242" />
+                ))}
+              </g>
+
+              {routes.vehicles.map((truck) => {
+                const pathPoints = truck.route.map((point) => toMapPoint(point)).join(" ");
+                const currentPoint = { lat: truck.lat, lng: truck.lng };
+                const currentPosition = toMapPoint(currentPoint).split(",").map(Number);
+
+                return (
+                  <g key={truck.id}>
+                    <polyline
+                      points={pathPoints}
+                      fill="none"
+                      stroke={truck.status === "delayed" ? "#f87171" : "#22c55e"}
+                      strokeWidth="3"
+                      strokeDasharray={truck.status === "delayed" ? "8 8" : "0"}
+                      opacity="0.9"
+                    />
+                    <circle cx={currentPosition[0]} cy={currentPosition[1]} r="7" fill={truck.status === "delayed" ? "#f87171" : "#22c55e"} stroke="#dbeafe" strokeWidth="2" />
+                    <text x={currentPosition[0] + 12} y={currentPosition[1] - 12} fill="#e2e8f0" fontSize="12" fontWeight="600">
+                      {truck.name}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="route-legend">
+            {routes.vehicles.map((truck) => (
+              <div key={truck.id} className="route-item">
+                <div className="route-header">
+                  <span className="route-dot" style={{ background: truck.status === "delayed" ? "#f87171" : "#22c55e" }} />
+                  <strong>{truck.name}</strong>
+                </div>
+                <div className="route-meta">
+                  <span>{truck.status === "delayed" ? "Delayed" : "On schedule"}</span>
+                  <span>{truck.speed} km/h</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     </main>

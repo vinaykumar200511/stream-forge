@@ -49,3 +49,14 @@ def test_topology_endpoint():
     assert len(data["nodes"]) >= 4
     assert any(node["id"] == "producer" for node in data["nodes"])
     assert any(edge["source"] == "producer" and edge["target"] == "kafka" for edge in data["edges"])
+
+
+def test_routes_endpoint():
+    """Verify GET /routes returns movement data for the GPS route panel."""
+    response = client.get("/routes")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "vehicles" in data
+    assert len(data["vehicles"]) >= 2
+    assert all("route" in vehicle for vehicle in data["vehicles"])

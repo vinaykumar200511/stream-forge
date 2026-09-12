@@ -144,7 +144,74 @@ h1 {
   font-weight: 600;
 }
 
+.route-panel {
+  max-width: 1400px;
+  margin: 22px auto 0;
+  padding: 20px;
+  border: 1px solid #24364d;
+  border-radius: 14px;
+  background: rgba(15, 30, 50, 0.88);
+}
+
+.route-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.route-map {
+  overflow: hidden;
+  border: 1px solid #24364d;
+  border-radius: 12px;
+  background: #091827;
+}
+
+.route-map svg {
+  display: block;
+  width: 100%;
+  height: 260px;
+}
+
+.route-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.route-item {
+  padding: 14px 16px;
+  border: 1px solid #24364d;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.route-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.route-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.route-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
 @media (max-width: 800px) {
+  .route-layout {
+    grid-template-columns: 1fr;
+  }
   .dashboard {
     padding: 18px;
   }
