@@ -50,6 +50,20 @@ const formatNumber = (value) =>
     maximumFractionDigits: value >= 1000 ? 0 : 1,
   }).format(value);
 
+const getRouteSummary = (truck) => {
+  const routeLength = truck.route?.length || 1;
+  const completion = Math.min(98, Math.max(52, 60 + routeLength * 8 + (truck.status === "delayed" ? -10 : 8)));
+  const thermalVariance = 1.8 + (truck.speed / 25) + (truck.status === "delayed" ? 1.7 : 0.8);
+  const etaMinutes = Math.max(8, 32 - truck.speed / 2 + (truck.status === "delayed" ? 12 : 0));
+
+  return {
+    completion: Math.round(completion),
+    thermalVariance: Number(thermalVariance.toFixed(1)),
+    etaMinutes: Math.round(etaMinutes),
+    alerts: truck.status === "delayed" ? 2 : 0,
+  };
+};
+
 const buildFallbackTopology = () => ({
   nodes: [
     {
@@ -224,6 +238,16 @@ function App() {
 
   const statusLabel = metrics.eventsPerSecond > 10000 ? "System: Kafka Live" : "System: Stable";
   const liveSummary = lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Fallback topology";
+  const truckSummaries = routes.vehicles.map((truck) => ({
+    ...truck,
+    ...getRouteSummary(truck),
+    statusText: truck.status === "delayed" ? "Delayed" : "On schedule",
+    statusClass: truck.status === "delayed" ? "warning" : "healthy",
+  }));
+  const averageSpeed = Math.round(routes.vehicles.reduce((sum, truck) => sum + truck.speed, 0) / routes.vehicles.length);
+  const onTimeRate = Math.round(
+    (routes.vehicles.filter((truck) => truck.status !== "delayed").length / routes.vehicles.length) * 100,
+  );
 
   const mapBounds = {
     minLat: 40.70,
@@ -291,6 +315,77 @@ function App() {
           >
             <Background />
           </ReactFlow>
+        </div>
+      </section>
+
+      <section className="kpi-panel">
+        <div className="section-title">
+          <div>
+            <h2>Fleet KPI Dashboard</h2>
+            <p>Route, thermal, and operational health summary</p>
+          </div>
+        </div>
+
+        <div className="kpi-grid">
+          <div className="kpi-box accent-blue">
+            <span>Avg. Speed</span>
+            <strong>{averageSpeed} km/h</strong>
+            <small>Across active trucks</small>
+          </div>
+          <div className="kpi-box accent-green">
+            <span>On-Time Rate</span>
+            <strong>{onTimeRate}%</strong>
+            <small>Route compliance</small>
+          </div>
+          <div className="kpi-box accent-amber">
+            <span>Thermal Drift</span>
+            <strong>{Math.max(...truckSummaries.map((truck) => truck.thermalVariance)).toFixed(1)}°C</strong>
+            <small>Peak variance</small>
+          </div>
+          <div className="kpi-box accent-red">
+            <span>Active Alerts</span>
+            <strong>{truckSummaries.filter((truck) => truck.alerts > 0).length}</strong>
+            <small>Route exceptions</small>
+          </div>
+        </div>
+
+        <div className="summary-grid">
+          {truckSummaries.map((truck) => (
+            <article key={truck.id} className="summary-card">
+              <div className="summary-header">
+                <div>
+                  <span className="summary-label">Truck</span>
+                  <h3>{truck.name}</h3>
+                </div>
+                <span className={`summary-status ${truck.statusClass}`}>{truck.statusText}</span>
+              </div>
+
+              <div className="summary-metrics">
+                <div>
+                  <span>Speed</span>
+                  <strong>{truck.speed} km/h</strong>
+                </div>
+                <div>
+                  <span>ETA</span>
+                  <strong>{truck.etaMinutes} min</strong>
+                </div>
+                <div>
+                  <span>Temp drift</span>
+                  <strong>{truck.thermalVariance}°C</strong>
+                </div>
+              </div>
+
+              <div className="summary-progress">
+                <div className="summary-progress-header">
+                  <span>Route progress</span>
+                  <strong>{truck.completion}%</strong>
+                </div>
+                <div className="progress-track">
+                  <span style={{ width: `${truck.completion}%` }} />
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
