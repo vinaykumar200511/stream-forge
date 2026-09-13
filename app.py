@@ -6,7 +6,16 @@ import time
 app = faust.App(
     'streamforge',
     broker='kafka://localhost:9092',
-    store='memory://',  # we'll swap this for RocksDB in Week 3
+    store='memory://',
+    # TODO (Week 3 - RocksDB): store='rocksdb://' is blocked on Windows.
+    # Full native toolchain was verified working (pkg-config, MSVC Build Tools,
+    # and RocksDB 11.8.1 built successfully from source via vcpkg - ~1.5hr build).
+    # The blocker is a bug inside the faust-streaming-rocksdb==0.9.3 wrapper's
+    # own setup.py ("ValueError: list.remove(x): x not in list") when parsing
+    # pkg-config output for this RocksDB version - not an environment issue.
+    # Next step: run this worker in Docker/WSL (Linux), where prebuilt
+    # faust-streaming-rocksdb wheels install cleanly, instead of fighting
+    # the Windows native build further.
 )
 
 # Matches streamforge/common/models.py -> RawTelemetryEvent
