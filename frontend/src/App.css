@@ -145,6 +145,7 @@ h1 {
 }
 
 .kpi-panel,
+.analytics-panel,
 .route-panel {
   max-width: 1400px;
   margin: 22px auto 0;
@@ -152,6 +153,70 @@ h1 {
   border: 1px solid #24364d;
   border-radius: 14px;
   background: rgba(15, 30, 50, 0.88);
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.chart-card {
+  padding: 16px;
+  border: 1px solid #24364d;
+  border-radius: 12px;
+  background: rgba(8, 17, 29, 0.82);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.chart-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #94a3b8;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.chart-header strong {
+  color: #f8fafc;
+  font-size: 24px;
+}
+
+.chart-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-amber {
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+}
+
+.tag-blue {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: 180px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.7);
 }
 
 .kpi-grid {
