@@ -194,6 +194,9 @@ function App() {
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [truckSearch, setTruckSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortOption, setSortOption] = useState("name");
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -278,9 +281,33 @@ function App() {
     statusText: truck.status === "delayed" ? "Delayed" : "On schedule",
     statusClass: truck.status === "delayed" ? "warning" : "healthy",
   }));
-  const averageSpeed = Math.round(routes.vehicles.reduce((sum, truck) => sum + truck.speed, 0) / routes.vehicles.length);
+  const normalizedSearch = truckSearch.trim().toLowerCase();
+  const visibleTruckSummaries = truckSummaries
+    .filter((truck) => {
+      const matchesSearch = !normalizedSearch || `${truck.name} ${truck.id}`.toLowerCase().includes(normalizedSearch);
+      const matchesStatus = statusFilter === "all" || truck.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((firstTruck, secondTruck) => {
+      if (sortOption === "speed") {
+        return secondTruck.speed - firstTruck.speed;
+      }
+      if (sortOption === "eta") {
+        return firstTruck.etaMinutes - secondTruck.etaMinutes;
+      }
+      if (sortOption === "thermal") {
+        return secondTruck.thermalVariance - firstTruck.thermalVariance;
+      }
+      return firstTruck.name.localeCompare(secondTruck.name);
+    });
+  const hasActiveTruckFilters = Boolean(normalizedSearch) || statusFilter !== "all" || sortOption !== "name";
+  const averageSpeed = routes.vehicles.length
+    ? Math.round(routes.vehicles.reduce((sum, truck) => sum + truck.speed, 0) / routes.vehicles.length)
+    : 0;
   const onTimeRate = Math.round(
-    (routes.vehicles.filter((truck) => truck.status !== "delayed").length / routes.vehicles.length) * 100,
+    routes.vehicles.length
+      ? (routes.vehicles.filter((truck) => truck.status !== "delayed").length / routes.vehicles.length) * 100
+      : 0,
   );
 
   const mapBounds = {
@@ -390,8 +417,57 @@ function App() {
           </div>
         </div>
 
+        <div className="fleet-toolbar" aria-label="Filter and sort trucks">
+          <label className="search-field">
+            <span className="sr-only">Search trucks</span>
+            <span className="search-icon" aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              value={truckSearch}
+              onChange={(event) => setTruckSearch(event.target.value)}
+              placeholder="Search by truck name or ID"
+            />
+          </label>
+
+          <label className="select-field">
+            <span>Status</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">All trucks</option>
+              <option value="moving">Moving</option>
+              <option value="delayed">Delayed</option>
+            </select>
+          </label>
+
+          <label className="select-field">
+            <span>Sort by</span>
+            <select value={sortOption} onChange={(event) => setSortOption(event.target.value)}>
+              <option value="name">Truck name</option>
+              <option value="speed">Speed: high to low</option>
+              <option value="eta">ETA: soonest first</option>
+              <option value="thermal">Thermal drift: high to low</option>
+            </select>
+          </label>
+
+          <div className="fleet-result-count" aria-live="polite">
+            <strong>{visibleTruckSummaries.length}</strong> of {truckSummaries.length} trucks
+          </div>
+
+          <button
+            type="button"
+            className="reset-filters"
+            onClick={() => {
+              setTruckSearch("");
+              setStatusFilter("all");
+              setSortOption("name");
+            }}
+            disabled={!hasActiveTruckFilters}
+          >
+            Reset
+          </button>
+        </div>
+
         <div className="summary-grid">
-          {truckSummaries.map((truck) => (
+          {visibleTruckSummaries.map((truck) => (
             <article key={truck.id} className="summary-card">
               <div className="summary-header">
                 <div>
@@ -427,6 +503,12 @@ function App() {
               </div>
             </article>
           ))}
+          {visibleTruckSummaries.length === 0 && (
+            <div className="empty-results">
+              <strong>No trucks match these filters.</strong>
+              <span>Try a different search or reset the filters.</span>
+            </div>
+          )}
         </div>
       </section>
 
