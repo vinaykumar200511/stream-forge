@@ -58,5 +58,6 @@ def test_routes_endpoint():
     data = response.json()
     assert data["status"] == "ok"
     assert "vehicles" in data
-    assert len(data["vehicles"]) >= 2
+    assert len(data["vehicles"]) >= 9
+    assert data["vehicles"][-6]["name"] == "Truck 1"
     assert all("route" in vehicle for vehicle in data["vehicles"])
