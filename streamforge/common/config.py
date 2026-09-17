@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     KAFKA_CHANGELOG_TOPIC: str = Field(default="changelog-topic")
     KAFKA_PROCESSED_TOPIC: str = Field(default="processed-averages")
     KAFKA_ALERTS_TOPIC: str = Field(default="alerts-topic")
+    KAFKA_DEAD_LETTER_TOPIC: str = Field(default="telemetry-dead-letter")
     KAFKA_NUM_PARTITIONS: int = Field(default=6)
     KAFKA_REPLICATION_FACTOR: int = Field(default=1)
 

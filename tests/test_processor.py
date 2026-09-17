@@ -2,8 +2,10 @@ import json
 
 from streamforge.common.models import RawTelemetryEvent
 from streamforge.processor.faust_app import (
+    build_dead_letter_event,
     build_processed_aggregate,
     calculate_window_bounds,
+    detect_anomaly,
     is_valid_telemetry,
     normalize_telemetry,
     process_telemetry_event,
@@ -26,7 +28,37 @@ def test_filter_drops_zero_and_malformed_events():
 def test_filter_drops_negative_temperature_events():
     negative_event = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-5.0)
 
-    assert not is_valid_telemetry(negative_event.kafka_key, negative_event.model_dump_json().encode())
+    assert is_valid_telemetry(negative_event.kafka_key, negative_event.model_dump_json().encode())
+
+
+def test_dead_letter_event_preserves_invalid_payload_context():
+    dead_letter = build_dead_letter_event(
+        "cust_01:truck_01",
+        b"not-json",
+        ValueError("invalid telemetry"),
+    )
+
+    assert dead_letter.kafka_key == "cust_01:truck_01"
+    assert dead_letter.payload == "not-json"
+    assert dead_letter.source_topic == "raw-telemetry"
+    assert "ValueError" in dead_letter.error
+
+
+def test_anomaly_detection_classifies_temperature_and_compressor_events():
+    high = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-5.0)
+    low = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_02", temperature=-30.0)
+
+    assert detect_anomaly(high).alert_type.value == "HIGH_TEMPERATURE"
+    assert detect_anomaly(low).alert_type.value == "LOW_TEMPERATURE"
+
+
+def test_anomaly_detection_classifies_rapid_thermal_rise():
+    event = RawTelemetryEvent(customer_id="cust_01", truck_id="truck_01", temperature=-14.0)
+
+    alert = detect_anomaly(event, previous_temperature=-18.0)
+
+    assert alert is not None
+    assert alert.alert_type.value == "RAPID_THERMAL_RISE"
 
 
 def test_filter_drops_various_malformed_payloads():

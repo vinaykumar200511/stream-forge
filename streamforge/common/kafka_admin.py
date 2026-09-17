@@ -25,6 +25,7 @@ def ensure_kafka_topics_sync(
         settings.KAFKA_CHANGELOG_TOPIC,
         settings.KAFKA_PROCESSED_TOPIC,
         settings.KAFKA_ALERTS_TOPIC,
+        settings.KAFKA_DEAD_LETTER_TOPIC,
     ]
 
     try:
@@ -89,6 +90,7 @@ async def ensure_kafka_topics(
                 settings.KAFKA_CHANGELOG_TOPIC,
                 settings.KAFKA_PROCESSED_TOPIC,
                 settings.KAFKA_ALERTS_TOPIC,
+                settings.KAFKA_DEAD_LETTER_TOPIC,
             ]
 
             topics_to_create = [

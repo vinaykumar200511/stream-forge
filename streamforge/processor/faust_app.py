@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import logging
 import json
+import math
 from typing import Any, Mapping
 
 import faust
@@ -16,6 +17,7 @@ from streamforge.common.models import (
     AlertType,
     AnomalyAlert,
     CompressorStatus,
+    DeadLetterTelemetry,
     NormalizedTelemetryEvent,
     ProcessedAggregate,
     RawTelemetryEvent,
@@ -54,6 +56,13 @@ alerts_topic = app.topic(
     settings.KAFKA_ALERTS_TOPIC,
     key_type=str,
     value_type=AnomalyAlert,
+    partitions=settings.KAFKA_NUM_PARTITIONS,
+)
+
+dead_letter_topic = app.topic(
+    settings.KAFKA_DEAD_LETTER_TOPIC,
+    key_type=str,
+    value_type=DeadLetterTelemetry,
     partitions=settings.KAFKA_NUM_PARTITIONS,
 )
 
@@ -98,16 +107,82 @@ def _parse_raw_event(value: Any) -> RawTelemetryEvent:
 
 
 def is_valid_telemetry(key: str, value: Any) -> bool:
-    """Accept only valid telemetry packets whose temperature is strictly above zero."""
+    """Return whether a payload satisfies the raw telemetry schema and has a non-zero reading."""
     try:
         event = _parse_raw_event(value)
     except (TypeError, ValueError, ValidationError, json.JSONDecodeError, AttributeError):
-        logger.warning("Dropping malformed telemetry record for key=%s", key)
         return False
-    if event.temperature is None or event.temperature <= 0:
-        logger.debug("Dropping telemetry with non-positive temperature for key=%s: temp=%s", key, event.temperature)
-        return False
-    return True
+    return event.temperature != 0
+
+
+def _payload_text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, default=str)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def build_dead_letter_event(key: str, value: Any, error: Exception) -> DeadLetterTelemetry:
+    """Create a replayable dead-letter envelope without losing the original payload."""
+    return DeadLetterTelemetry(
+        original_key=str(key),
+        payload=_payload_text(value),
+        error=f"{type(error).__name__}: {error}",
+        source_topic=settings.KAFKA_RAW_TOPIC,
+    )
+
+
+def detect_anomaly(
+    event: dict[str, Any] | NormalizedTelemetryEvent | RawTelemetryEvent,
+    previous_temperature: float | None = None,
+) -> AnomalyAlert | None:
+    """Classify the first anomaly found in a validated telemetry event."""
+    event_dict = _event_dict(event)
+    temperature = float(event_dict["temperature"])
+    compressor_status = event_dict.get("compressor_status", CompressorStatus.RUNNING)
+    if isinstance(compressor_status, str):
+        compressor_status = CompressorStatus(compressor_status)
+    customer_id = str(event_dict["customer_id"])
+    truck_id = str(event_dict["truck_id"])
+    target_temperature = float(event_dict.get("target_temperature", event_dict.get("target_temp", -18.0)))
+    alert_type = None
+    severity = AlertSeverity.WARNING
+    message = ""
+
+    if compressor_status == CompressorStatus.FAULT:
+        alert_type = AlertType.COMPRESSOR_FAILURE
+        severity = AlertSeverity.CRITICAL
+        message = f"Compressor FAULT detected on vehicle {truck_id}"
+    elif temperature > settings.SAFE_TEMP_MAX:
+        alert_type = AlertType.HIGH_TEMPERATURE
+        message = f"High thermal excursion on vehicle {truck_id}: {temperature} exceeds limit {settings.SAFE_TEMP_MAX}"
+    elif temperature < settings.SAFE_TEMP_MIN:
+        alert_type = AlertType.LOW_TEMPERATURE
+        message = f"Low thermal excursion on vehicle {truck_id}: {temperature} is below limit {settings.SAFE_TEMP_MIN}"
+    elif previous_temperature is not None and math.isfinite(previous_temperature):
+        temperature_rise = temperature - previous_temperature
+        if temperature_rise >= settings.TEMP_SPIKE_TOLERANCE:
+            alert_type = AlertType.RAPID_THERMAL_RISE
+            message = f"Rapid thermal rise on vehicle {truck_id}: {temperature_rise:.2f} exceeds tolerance {settings.TEMP_SPIKE_TOLERANCE}"
+
+    if alert_type is None:
+        return None
+    return AnomalyAlert(
+        customer_id=customer_id,
+        truck_id=truck_id,
+        severity=severity,
+        alert_type=alert_type,
+        trigger_temperature=temperature,
+        target_temperature=target_temperature,
+        threshold_limit=settings.SAFE_TEMP_MAX,
+        compressor_status=compressor_status,
+        timestamp=float(event_dict.get("timestamp", time.time())),
+        message=message,
+    )
 
 
 def normalize_telemetry(key: str, value: Any) -> dict[str, Any]:
@@ -170,6 +245,7 @@ def create_initial_window_state(
         "min_temperature": temp,
         "max_temperature": temp,
         "target_temperature": target_temp,
+        "last_temperature": temp,
     }
 
 
@@ -196,6 +272,7 @@ def update_window_state(
     new_state["min_temperature"] = min(float(new_state["min_temperature"]), temp)
     new_state["max_temperature"] = max(float(new_state["max_temperature"]), temp)
     new_state["target_temperature"] = target_temp
+    new_state["last_temperature"] = temp
     return new_state
 
 
@@ -308,10 +385,7 @@ def process_telemetry_event(
     return updated_state, aggregate
 
 
-telemetry_stream = (
-    raw_telemetry_topic.stream()
-    .filter(is_valid_telemetry)
-)
+telemetry_stream = raw_telemetry_topic.stream()
 
 
 @app.agent(telemetry_stream)
@@ -319,7 +393,16 @@ async def consume_normalized_telemetry(stream):
     """Consume filter/map telemetry events, aggregate into 5-minute tumbling windows grouped by (customer_id, truck_id),
     and emit ProcessedAggregate records."""
     async for key, event in stream.items():
-        normalized_event = normalize_telemetry(key, event)
+        try:
+            raw_event = _parse_raw_event(event)
+            if not is_valid_telemetry(key, raw_event):
+                raise ValueError("temperature must be non-zero")
+            normalized_event = normalize_telemetry(key, raw_event)
+        except (TypeError, ValueError, ValidationError, json.JSONDecodeError, AttributeError) as err:
+            dead_letter = build_dead_letter_event(key, event, err)
+            await dead_letter_topic.send(key=str(key), value=dead_letter)
+            logger.warning("Routed malformed telemetry record for key=%s to %s", key, settings.KAFKA_DEAD_LETTER_TOPIC)
+            continue
         logger.debug("Normalized telemetry received for key=%s: %s", key, normalized_event)
 
         cust_id = normalized_event["customer_id"]
@@ -347,28 +430,9 @@ async def consume_normalized_telemetry(stream):
 
         await processed_topic.send(key=group_key, value=aggregate)
 
-        temp = float(normalized_event["temperature"])
-        comp_status = normalized_event.get("compressor_status")
-        if comp_status == CompressorStatus.FAULT or temp > settings.SAFE_TEMP_MAX:
-            severity = AlertSeverity.CRITICAL if comp_status == CompressorStatus.FAULT else AlertSeverity.WARNING
-            alert_type = AlertType.COMPRESSOR_FAILURE if comp_status == CompressorStatus.FAULT else AlertType.HIGH_TEMPERATURE
-            msg = (
-                f"Compressor FAULT detected on vehicle {trk_id}"
-                if comp_status == CompressorStatus.FAULT
-                else f"High thermal excursion on vehicle {trk_id}: {temp}°C exceeds limit {settings.SAFE_TEMP_MAX}°C"
-            )
-            alert = AnomalyAlert(
-                customer_id=cust_id,
-                truck_id=trk_id,
-                severity=severity,
-                alert_type=alert_type,
-                trigger_temperature=temp,
-                target_temperature=float(normalized_event.get("target_temperature", -18.0)),
-                threshold_limit=settings.SAFE_TEMP_MAX,
-                compressor_status=comp_status or CompressorStatus.FAULT,
-                timestamp=float(normalized_event.get("timestamp", time.time())),
-                message=msg,
-            )
+        previous_temperature = (current_state or {}).get("last_temperature")
+        alert = detect_anomaly(normalized_event, previous_temperature=previous_temperature)
+        if alert is not None:
             await alerts_topic.send(key=group_key, value=alert)
 
 
@@ -377,11 +441,14 @@ __all__ = [
     "raw_telemetry_topic",
     "processed_topic",
     "alerts_topic",
+    "dead_letter_topic",
     "changelog_topic",
     "truck_state_table",
     "local_state_store",
     "telemetry_stream",
     "is_valid_telemetry",
+    "build_dead_letter_event",
+    "detect_anomaly",
     "normalize_telemetry",
     "NormalizedTelemetryEvent",
     "calculate_window_bounds",

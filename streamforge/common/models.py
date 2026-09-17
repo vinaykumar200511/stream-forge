@@ -131,3 +131,16 @@ class AnomalyAlert(BaseModel):
     @property
     def kafka_key(self) -> str:
         return f"{self.customer_id}:{self.truck_id}"
+
+
+class DeadLetterTelemetry(BaseModel):
+    """Original telemetry payload and failure context for replay or inspection."""
+    original_key: str
+    payload: str
+    error: str
+    source_topic: str
+    failed_at: float = Field(default_factory=time.time)
+
+    @property
+    def kafka_key(self) -> str:
+        return self.original_key

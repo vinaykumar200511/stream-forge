@@ -11,6 +11,7 @@ This document establishes the official event contracts, schemas, serialization r
 | **Raw Telemetry** | `raw-telemetry` | `customer_id:truck_id` | High (~10k ev/s) | 24 Hours |
 | **Window Aggregate** | `processed-averages` | `customer_id:truck_id` | Medium (~200 ev/s) | 7 Days |
 | **Anomaly Alert** | `alerts-topic` | `customer_id:truck_id` | Low / Spike-driven | 30 Days |
+| **Dead-Letter Telemetry** | `telemetry-dead-letter` | Original Kafka key | Invalid or malformed records | 30 Days |
 | **State Changelog** | `changelog-topic` | `customer_id:truck_id` | Internal sync | Compacted |
 
 ---
@@ -103,6 +104,19 @@ Computed continuously by the stream processing engine across 5-minute tumbling/s
   "created_at": 1787725800.450
 }
 ```
+
+## 5. Topic 4: `telemetry-dead-letter` (Invalid Telemetry)
+
+Malformed or schema-invalid records from `raw-telemetry` are wrapped rather than discarded.
+The envelope retains the original Kafka key and payload, along with the validation error and source topic.
+
+| Field Name | Type | Description |
+| :--- | :--- | :--- |
+| `original_key` | `string` | Kafka key from the raw record |
+| `payload` | `string` | Original payload decoded as text when possible |
+| `error` | `string` | Validation exception type and message |
+| `source_topic` | `string` | Topic where the invalid record originated |
+| `failed_at` | `float (epoch)` | Time the record was routed to the dead-letter topic |
 
 ---
 
