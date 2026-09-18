@@ -318,7 +318,7 @@ function App() {
           })),
         });
         setLastUpdated(new Date(data.updated_at * 1000));
-      } catch (error) {
+      } catch {
         if (!isMounted) {
           return;
         }
@@ -338,7 +338,7 @@ function App() {
         if (isMounted && Array.isArray(data?.vehicles)) {
           setRoutes({ vehicles: data.vehicles });
         }
-      } catch (error) {
+      } catch {
         if (isMounted) {
           setRoutes(defaultRoutes);
         }

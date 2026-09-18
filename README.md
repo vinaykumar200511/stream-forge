@@ -114,11 +114,8 @@ pip install -r requirements.txt
 # Run unit tests
 python -m pytest tests/ -v
 
-# Run automated chaos resilience test
-python tests/chaos_test.py
-
-# Run high-throughput load benchmark
-python tests/load_test.py --events 50000
+# Run the end-to-end smoke test (requires the backend API)
+python scripts/smoke_test_e2e.py
 ```
 
 ### 2. Start the Backend API
@@ -134,7 +131,7 @@ cd frontend
 npm install
 npm run dev
 ```
-- Dashboard UI: [http://localhost:3000](http://localhost:3000)
+- Dashboard UI: [http://localhost:5173](http://localhost:5173)
 
 ### 4. One-Command Docker Cluster
 ```bash
@@ -146,9 +143,10 @@ docker-compose up -d --build
 ## 5. Verification & Testing Evidence
 
 ### Automated Test Suite
-- **Unit Tests:** `pytest tests/ -v` (10 passing unit tests verifying tumbling window math, out-of-order grace watermark, threshold breaches, and JWT security).
-- **Chaos Resilience Log:** [`docs/evidence/chaos_failover_log.md`](docs/evidence/chaos_failover_log.md) (Proves zero data loss when killing worker container mid-stream).
-- **Throughput Benchmark:** [`docs/evidence/throughput_benchmark.md`](docs/evidence/throughput_benchmark.md) (Proves 13,000+ ev/s sustained single-node throughput and < 0.15ms p95 latency).
+- **Unit tests:** `python -m pytest tests/ -v` (50 tests covering models, simulation, processing, state storage, consumers, and API endpoints).
+- **End-to-end smoke test:** `python scripts/smoke_test_e2e.py` (requires the backend API at `http://localhost:8000`).
+- **Chaos resilience evidence:** [`docs/evidence/chaos_failover_log.md`](docs/evidence/chaos_failover_log.md) (worker recovery and state-loss results).
+- **Throughput evidence:** [`docs/evidence/throughput_benchmark.md`](docs/evidence/throughput_benchmark.md) (sustained event rate and latency results).
 
 ---
 
