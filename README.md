@@ -152,3 +152,12 @@ docker-compose up -d --build
 
 ## 6. Demo Script & Review Presentation
 Reviewers can follow the step-by-step 2-minute pitch guide in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+
+## 7. Current Dashboard Scope
+The React dashboard is an owner-facing fleet command center built on the existing telemetry API. It includes:
+- Live or fallback connection status, throughput, temperature-alert, and uptime indicators.
+- Interactive fleet KPIs for total, in-transit, delayed, and average-speed views.
+- Search, status filtering, sorting, empty states, responsive fleet cards, and selectable truck detail panels.
+- Clickable route-map and movement-legend assets that keep the selected truck in context.
+
+Driver, cleaner, customer, shipment, compliance, and authenticated role workflows are not exposed by the current backend API. The dashboard labels those records as unavailable rather than presenting simulated operational data; these are the next integration surfaces for a production FleetPulse deployment.

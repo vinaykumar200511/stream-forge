@@ -129,6 +129,13 @@ const defaultRoutes = {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+const filterOptions = {
+  truckIds: ["truck-204", "truck-118", "truck-87", "truck-1", "truck-2", "truck-3", "truck-4", "truck-5", "truck-6"],
+  dates: ["2026-09-19", "2026-09-18"],
+  routes: ["Hudson Cold Chain", "Midtown Express", "Queens Transfer"],
+  truckTypes: ["Refrigerated", "Frozen Goods", "Produce"],
+};
+
 const temperatureTrend = [
   { label: "00:00", value: 3.4 },
   { label: "04:00", value: 3.9 },
@@ -278,22 +285,15 @@ function App() {
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [connectionState, setConnectionState] = useState("connecting");
   const [truckSearch, setTruckSearch] = useState("");
+  const [truckIdFilter, setTruckIdFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [routeFilter, setRouteFilter] = useState("all");
+  const [truckTypeFilter, setTruckTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortOption, setSortOption] = useState("name");
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setMetrics((current) => ({
-        activeTrucks: Math.max(1180, current.activeTrucks + Math.floor(Math.random() * 21) - 10),
-        eventsPerSecond: Math.max(9800, current.eventsPerSecond + Math.floor(Math.random() * 2400) - 1200),
-        temperatureAlerts: Math.max(4, current.temperatureAlerts + Math.floor(Math.random() * 5) - 2),
-        fleetUptime: Math.min(99.9, Math.max(98.4, Number((current.fleetUptime + (Math.random() * 0.3 - 0.15)).toFixed(1)))),
-      }));
-    }, 2000);
-
-    return () => window.clearInterval(interval);
-  }, []);
+  const [selectedTruckId, setSelectedTruckId] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -318,18 +318,44 @@ function App() {
           })),
         });
         setLastUpdated(new Date(data.updated_at * 1000));
+        setConnectionState("live");
       } catch {
         if (!isMounted) {
           return;
         }
         setTopology(buildFallbackTopology());
         setLastUpdated(null);
+        setConnectionState("fallback");
+      }
+    };
+
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/dashboard/metrics`);
+        if (!response.ok) {
+          throw new Error(`Metrics fetch failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (isMounted && data?.metrics) {
+          setMetrics(data.metrics);
+        }
+      } catch {
+        if (isMounted) {
+          setConnectionState("fallback");
+        }
       }
     };
 
     const fetchRoutes = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/routes`);
+        const params = new URLSearchParams();
+        if (truckIdFilter !== "all") params.set("truck_id", truckIdFilter);
+        if (dateFilter !== "all") params.set("date", dateFilter);
+        if (routeFilter !== "all") params.set("route", routeFilter);
+        if (truckTypeFilter !== "all") params.set("truck_type", truckTypeFilter);
+        const query = params.toString();
+        const response = await fetch(`${API_BASE_URL}/routes${query ? `?${query}` : ""}`);
         if (!response.ok) {
           throw new Error(`Route fetch failed: ${response.status}`);
         }
@@ -337,25 +363,30 @@ function App() {
         const data = await response.json();
         if (isMounted && Array.isArray(data?.vehicles)) {
           setRoutes({ vehicles: data.vehicles });
+          setConnectionState("live");
         }
       } catch {
         if (isMounted) {
           setRoutes(defaultRoutes);
+          setConnectionState("fallback");
         }
       }
     };
 
     fetchTopology();
+    fetchMetrics();
     fetchRoutes();
     const topologyInterval = window.setInterval(fetchTopology, 4000);
     const routeInterval = window.setInterval(fetchRoutes, 5000);
+    const metricsInterval = window.setInterval(fetchMetrics, 5000);
 
     return () => {
       isMounted = false;
       window.clearInterval(topologyInterval);
       window.clearInterval(routeInterval);
+      window.clearInterval(metricsInterval);
     };
-  }, []);
+  }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
 
   const statusLabel = metrics.eventsPerSecond > 10000 ? "System: Kafka Live" : "System: Stable";
   const liveSummary = lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Fallback topology";
@@ -384,7 +415,8 @@ function App() {
       }
       return firstTruck.name.localeCompare(secondTruck.name);
     });
-  const hasActiveTruckFilters = Boolean(normalizedSearch) || statusFilter !== "all" || sortOption !== "name";
+  const hasActiveTruckFilters = Boolean(normalizedSearch) || truckIdFilter !== "all" || dateFilter !== "all" || routeFilter !== "all" || truckTypeFilter !== "all" || statusFilter !== "all" || sortOption !== "name";
+  const selectedTruck = truckSummaries.find((truck) => truck.id === selectedTruckId) || null;
   const averageSpeed = routes.vehicles.length
     ? Math.round(routes.vehicles.reduce((sum, truck) => sum + truck.speed, 0) / routes.vehicles.length)
     : 0;
@@ -393,6 +425,14 @@ function App() {
       ? (routes.vehicles.filter((truck) => truck.status !== "delayed").length / routes.vehicles.length) * 100
       : 0,
   );
+  const delayedTruckCount = truckSummaries.filter((truck) => truck.status === "delayed").length;
+  const movingTruckCount = truckSummaries.filter((truck) => truck.status === "moving").length;
+  const fleetKpis = [
+    { label: "Total trucks", value: truckSummaries.length, detail: "Reporting to the fleet feed", filter: "all" },
+    { label: "In transit", value: movingTruckCount, detail: "Moving on active routes", filter: "moving" },
+    { label: "Delayed", value: delayedTruckCount, detail: "Need operator attention", filter: "delayed" },
+    { label: "Avg. speed", value: `${averageSpeed} km/h`, detail: "Across reporting trucks", filter: null },
+  ];
 
   const mapBounds = {
     minLat: 40.70,
@@ -422,7 +462,15 @@ function App() {
           <h1>Stream Forge</h1>
           <p className="subtitle">Truck telemetry pipeline monitoring dashboard</p>
         </div>
-        <span className="status">{statusLabel}</span>
+        <div className="header-actions">
+          <span className={`status status-${connectionState}`}>
+            <span className="status-dot" aria-hidden="true" />
+            {connectionState === "live" ? statusLabel : connectionState === "fallback" ? "Demo data mode" : "Connecting"}
+          </span>
+          <span className="alert-summary" aria-label={`${metrics.temperatureAlerts} temperature alerts`}>
+            <span aria-hidden="true">!</span> {metrics.temperatureAlerts} alerts
+          </span>
+        </div>
       </header>
 
       <section className="cards">
@@ -478,6 +526,28 @@ function App() {
           </div>
         </div>
 
+        <div className="command-kpi-grid" aria-label="Fleet command center summary">
+          {fleetKpis.map((kpi) => (
+            <button
+              key={kpi.label}
+              type="button"
+              className={`command-kpi ${kpi.filter && statusFilter === kpi.filter ? "is-active" : ""}`}
+              onClick={() => {
+                if (kpi.filter) {
+                  setStatusFilter(kpi.filter);
+                  setSortOption("name");
+                  setTruckSearch("");
+                }
+              }}
+              disabled={!kpi.filter}
+            >
+              <span>{kpi.label}</span>
+              <strong>{kpi.value}</strong>
+              <small>{kpi.detail}</small>
+            </button>
+          ))}
+        </div>
+
         <div className="kpi-grid">
           <div className="kpi-box accent-blue">
             <span>Avg. Speed</span>
@@ -514,6 +584,38 @@ function App() {
           </label>
 
           <label className="select-field">
+            <span>Truck ID</span>
+            <select value={truckIdFilter} onChange={(event) => setTruckIdFilter(event.target.value)}>
+              <option value="all">All truck IDs</option>
+              {filterOptions.truckIds.map((truckId) => <option key={truckId} value={truckId}>{truckId}</option>)}
+            </select>
+          </label>
+
+          <label className="select-field">
+            <span>Date</span>
+            <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}>
+              <option value="all">All dates</option>
+              {filterOptions.dates.map((date) => <option key={date} value={date}>{date}</option>)}
+            </select>
+          </label>
+
+          <label className="select-field">
+            <span>Route</span>
+            <select value={routeFilter} onChange={(event) => setRouteFilter(event.target.value)}>
+              <option value="all">All routes</option>
+              {filterOptions.routes.map((route) => <option key={route} value={route}>{route}</option>)}
+            </select>
+          </label>
+
+          <label className="select-field">
+            <span>Truck type</span>
+            <select value={truckTypeFilter} onChange={(event) => setTruckTypeFilter(event.target.value)}>
+              <option value="all">All types</option>
+              {filterOptions.truckTypes.map((truckType) => <option key={truckType} value={truckType}>{truckType}</option>)}
+            </select>
+          </label>
+
+          <label className="select-field">
             <span>Status</span>
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
               <option value="all">All trucks</option>
@@ -541,6 +643,10 @@ function App() {
             className="reset-filters"
             onClick={() => {
               setTruckSearch("");
+              setTruckIdFilter("all");
+              setDateFilter("all");
+              setRouteFilter("all");
+              setTruckTypeFilter("all");
               setStatusFilter("all");
               setSortOption("name");
             }}
@@ -552,7 +658,20 @@ function App() {
 
         <div className="summary-grid">
           {visibleTruckSummaries.map((truck) => (
-            <article key={truck.id} className="summary-card">
+            <article
+              key={truck.id}
+              className={`summary-card ${selectedTruckId === truck.id ? "is-selected" : ""}`}
+              onClick={() => setSelectedTruckId(truck.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedTruckId(truck.id);
+                }
+              }}
+              role="button"
+              tabIndex="0"
+              aria-label={`View details for ${truck.name}`}
+            >
               <div className="summary-header">
                 <div>
                   <span className="summary-label">Truck</span>
@@ -594,6 +713,27 @@ function App() {
             </div>
           )}
         </div>
+
+        {selectedTruck && (
+          <aside className="truck-detail" aria-label={`${selectedTruck.name} details`}>
+            <div className="truck-detail-header">
+              <div>
+                <span className="summary-label">Selected asset</span>
+                <h3>{selectedTruck.name}</h3>
+              </div>
+              <button type="button" className="detail-close" onClick={() => setSelectedTruckId(null)} aria-label="Close truck details">×</button>
+            </div>
+            <div className="truck-detail-grid">
+              <div><span>Status</span><strong>{selectedTruck.statusText}</strong></div>
+              <div><span>Current speed</span><strong>{selectedTruck.speed} km/h</strong></div>
+              <div><span>ETA</span><strong>{selectedTruck.etaMinutes} min</strong></div>
+              <div><span>Thermal drift</span><strong>{selectedTruck.thermalVariance}°C</strong></div>
+              <div><span>Coordinates</span><strong>{selectedTruck.lat.toFixed(4)}, {selectedTruck.lng.toFixed(4)}</strong></div>
+              <div><span>Telemetry</span><strong>{connectionState === "live" ? "Live feed" : "Demo feed"}</strong></div>
+            </div>
+            <p className="detail-note">Driver, shipment, and compliance records are not part of the current telemetry API.</p>
+          </aside>
+        )}
       </section>
 
       <section className="analytics-panel">
@@ -707,7 +847,17 @@ function App() {
                       strokeDasharray={truck.status === "delayed" ? "8 8" : "0"}
                       opacity="0.9"
                     />
-                    <circle cx={currentPosition[0]} cy={currentPosition[1]} r="7" fill={truck.status === "delayed" ? "#f87171" : "#22c55e"} stroke="#dbeafe" strokeWidth="2" />
+                    <circle
+                      cx={currentPosition[0]}
+                      cy={currentPosition[1]}
+                      r="7"
+                      fill={truck.status === "delayed" ? "#f87171" : "#22c55e"}
+                      stroke="#dbeafe"
+                      strokeWidth="2"
+                      onClick={() => setSelectedTruckId(truck.id)}
+                      role="button"
+                      tabIndex="0"
+                    />
                     <text x={currentPosition[0] + 12} y={currentPosition[1] - 12} fill="#e2e8f0" fontSize="12" fontWeight="600">
                       {truck.name}
                     </text>
@@ -719,7 +869,7 @@ function App() {
 
           <div className="route-legend">
             {routes.vehicles.map((truck) => (
-              <div key={truck.id} className="route-item">
+              <button key={truck.id} type="button" className={`route-item ${selectedTruckId === truck.id ? "is-selected" : ""}`} onClick={() => setSelectedTruckId(truck.id)}>
                 <div className="route-header">
                   <span className="route-dot" style={{ background: truck.status === "delayed" ? "#f87171" : "#22c55e" }} />
                   <strong>{truck.name}</strong>
@@ -728,7 +878,7 @@ function App() {
                   <span>{truck.status === "delayed" ? "Delayed" : "On schedule"}</span>
                   <span>{truck.speed} km/h</span>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

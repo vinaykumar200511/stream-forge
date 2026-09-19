@@ -6,11 +6,11 @@ Provides operational health checks, Prometheus /metrics exporter, and telemetry 
 import time
 from typing import Dict, Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from streamforge.common.config import settings
-from streamforge.backend.metrics import get_prometheus_metrics
+from streamforge.backend.metrics import get_dashboard_metrics, get_prometheus_metrics
 
 # Application initialization
 app = FastAPI(
@@ -168,16 +168,31 @@ async def topology_view() -> Dict[str, Any]:
     }
 
 
-@app.get("/routes", tags=["Observability"])
-async def route_view() -> Dict[str, Any]:
-    """Return GPS route data for the movement visualization panel."""
+@app.get("/dashboard/metrics", tags=["Dashboard"])
+async def dashboard_metrics() -> Dict[str, Any]:
+    """Return the KPI values consumed by the React dashboard."""
     return {
         "status": "ok",
         "service": "streamforge-backend",
         "updated_at": round(time.time(), 3),
-        "vehicles": [
+        "metrics": get_dashboard_metrics(9),
+    }
+
+
+@app.get("/routes", tags=["Dashboard"])
+async def route_view(
+    truck_id: str | None = Query(default=None, min_length=1),
+    date: str | None = Query(default=None, min_length=1),
+    route: str | None = Query(default=None, min_length=1),
+    truck_type: str | None = Query(default=None, min_length=1),
+) -> Dict[str, Any]:
+    """Return GPS route data, optionally filtered by fleet dimensions."""
+    vehicles = [
             {
                 "id": "truck-204",
+                "telemetry_date": "2026-09-19",
+                "route_name": "Hudson Cold Chain",
+                "truck_type": "Refrigerated",
                 "name": "Truck 204",
                 "speed": 58,
                 "status": "moving",
@@ -192,6 +207,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-118",
+                "telemetry_date": "2026-09-19",
+                "route_name": "Midtown Express",
+                "truck_type": "Refrigerated",
                 "name": "Truck 118",
                 "speed": 45,
                 "status": "delayed",
@@ -206,6 +224,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-87",
+                "telemetry_date": "2026-09-18",
+                "route_name": "Queens Transfer",
+                "truck_type": "Frozen Goods",
                 "name": "Truck 87",
                 "speed": 62,
                 "status": "moving",
@@ -220,6 +241,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-1",
+                "telemetry_date": "2026-09-18",
+                "route_name": "Hudson Cold Chain",
+                "truck_type": "Produce",
                 "name": "Truck 1",
                 "speed": 51,
                 "status": "moving",
@@ -234,6 +258,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-2",
+                "telemetry_date": "2026-09-19",
+                "route_name": "Midtown Express",
+                "truck_type": "Frozen Goods",
                 "name": "Truck 2",
                 "speed": 42,
                 "status": "delayed",
@@ -248,6 +275,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-3",
+                "telemetry_date": "2026-09-19",
+                "route_name": "Queens Transfer",
+                "truck_type": "Produce",
                 "name": "Truck 3",
                 "speed": 67,
                 "status": "moving",
@@ -262,6 +292,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-4",
+                "telemetry_date": "2026-09-18",
+                "route_name": "Hudson Cold Chain",
+                "truck_type": "Refrigerated",
                 "name": "Truck 4",
                 "speed": 38,
                 "status": "delayed",
@@ -276,6 +309,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-5",
+                "telemetry_date": "2026-09-19",
+                "route_name": "Midtown Express",
+                "truck_type": "Produce",
                 "name": "Truck 5",
                 "speed": 55,
                 "status": "moving",
@@ -290,6 +326,9 @@ async def route_view() -> Dict[str, Any]:
             },
             {
                 "id": "truck-6",
+                "telemetry_date": "2026-09-18",
+                "route_name": "Queens Transfer",
+                "truck_type": "Refrigerated",
                 "name": "Truck 6",
                 "speed": 48,
                 "status": "moving",
@@ -302,5 +341,19 @@ async def route_view() -> Dict[str, Any]:
                     {"lat": 40.7650, "lng": -73.9440},
                 ],
             },
-        ],
+        ]
+
+    filtered_vehicles = [
+        vehicle for vehicle in vehicles
+        if (not truck_id or vehicle["id"].lower() == truck_id.lower())
+        and (not date or vehicle["telemetry_date"] == date)
+        and (not route or vehicle["route_name"].lower() == route.lower())
+        and (not truck_type or vehicle["truck_type"].lower() == truck_type.lower())
+    ]
+
+    return {
+        "status": "ok",
+        "service": "streamforge-backend",
+        "updated_at": round(time.time(), 3),
+        "vehicles": filtered_vehicles,
     }

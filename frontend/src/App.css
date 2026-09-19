@@ -6,6 +6,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background: #07111f;
   color: #e5eefb;
   font-family: Arial, sans-serif;
@@ -52,12 +53,61 @@ h1 {
 }
 
 .status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 14px;
   border: 1px solid #854d0e;
   border-radius: 999px;
   background: #422006;
   color: #facc15;
   font-size: 14px;
+}
+
+.status-live {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(20, 83, 45, 0.45);
+  color: #86efac;
+}
+
+.status-fallback {
+  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(113, 63, 18, 0.45);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 4px rgba(134, 239, 172, 0.12);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.alert-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #fca5a5;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.alert-summary span {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 50%;
+  background: rgba(127, 29, 29, 0.35);
 }
 
 .cards {
@@ -124,6 +174,10 @@ h1 {
 
 .flow-container .react-flow {
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(10, 22, 40, 0.96));
+}
+
+.flow-container .react-flow__renderer {
+  overflow: hidden;
 }
 
 .flow-container .react-flow__node {
@@ -224,6 +278,50 @@ h1 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.command-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.command-kpi {
+  display: grid;
+  gap: 7px;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid #2c425d;
+  border-radius: 10px;
+  background: #0b192b;
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.command-kpi:hover:not(:disabled),
+.command-kpi.is-active {
+  border-color: #38bdf8;
+  background: #10253b;
+  transform: translateY(-2px);
+}
+
+.command-kpi:disabled {
+  cursor: default;
+}
+
+.command-kpi span,
+.command-kpi small {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.command-kpi strong {
+  color: #f8fafc;
+  font-size: 27px;
+  line-height: 1;
 }
 
 .kpi-box {
@@ -391,6 +489,16 @@ h1 {
   border: 1px solid #24364d;
   border-radius: 12px;
   background: rgba(8, 17, 29, 0.8);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.summary-card:hover,
+.summary-card:focus-visible,
+.summary-card.is-selected {
+  border-color: #38bdf8;
+  background: rgba(12, 34, 56, 0.92);
+  outline: none;
 }
 
 .summary-header {
@@ -486,6 +594,68 @@ h1 {
   background: linear-gradient(90deg, #22c55e, #38bdf8);
 }
 
+.truck-detail {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #38bdf8;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(14, 45, 72, 0.9), rgba(8, 17, 29, 0.92));
+}
+
+.truck-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.truck-detail-header h3 {
+  margin: 6px 0 0;
+  font-size: 22px;
+}
+
+.detail-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #38506c;
+  border-radius: 50%;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.truck-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.truck-detail-grid div {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border-radius: 8px;
+  background: rgba(7, 17, 31, 0.6);
+}
+
+.truck-detail-grid span,
+.detail-note {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.truck-detail-grid strong {
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.detail-note {
+  margin: 14px 0 0;
+}
+
 .route-layout {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
@@ -513,10 +683,20 @@ h1 {
 }
 
 .route-item {
+  width: 100%;
   padding: 14px 16px;
   border: 1px solid #24364d;
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.8);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.route-item:hover,
+.route-item.is-selected {
+  border-color: #38bdf8;
+  background: rgba(12, 34, 56, 0.92);
 }
 
 .route-header {
@@ -562,6 +742,10 @@ h1 {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .command-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .flow-container {
     height: 420px;
   }
@@ -581,6 +765,10 @@ h1 {
 
   .fleet-result-count {
     margin-right: auto;
+  }
+
+  .truck-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -605,5 +793,14 @@ h1 {
 
   .fleet-result-count {
     padding: 2px 0;
+  }
+
+  .command-kpi-grid,
+  .truck-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
   }
 }
