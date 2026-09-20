@@ -357,3 +357,47 @@ async def route_view(
         "updated_at": round(time.time(), 3),
         "vehicles": filtered_vehicles,
     }
+
+
+@app.get("/vehicles/history", tags=["Dashboard"])
+@app.get("/dashboard/vehicles/history", tags=["Dashboard"], include_in_schema=False)
+async def vehicle_history(
+    plate: str = Query(
+        default="NYC-204",
+        min_length=2,
+        description="Vehicle number plate, for example NYC-204 or NYC-118.",
+    ),
+) -> Dict[str, Any]:
+    """Return owner, driver, and recent trip history for a number plate."""
+    records = {
+        "NYC-204": {
+            "plate": "NYC-204",
+            "vehicle": "Truck 204",
+            "owner": "Northstar Cold Logistics",
+            "driver": "Maya Patel",
+            "driverStatus": "On duty",
+            "lastSeen": "2026-09-19 14:32",
+            "history": [
+                {"date": "2026-09-19", "route": "Hudson Cold Chain", "status": "Completed", "distance": "48 km"},
+                {"date": "2026-09-18", "route": "Hudson Cold Chain", "status": "Completed", "distance": "51 km"},
+                {"date": "2026-09-17", "route": "Midtown Express", "status": "Delayed", "distance": "36 km"},
+            ],
+        },
+        "NYC-118": {
+            "plate": "NYC-118",
+            "vehicle": "Truck 118",
+            "owner": "Northstar Cold Logistics",
+            "driver": "Jordan Brooks",
+            "driverStatus": "On duty",
+            "lastSeen": "2026-09-19 14:28",
+            "history": [
+                {"date": "2026-09-19", "route": "Midtown Express", "status": "Delayed", "distance": "29 km"},
+                {"date": "2026-09-18", "route": "Queens Transfer", "status": "Completed", "distance": "62 km"},
+            ],
+        },
+    }
+    normalized_plate = plate.strip().upper()
+    record = records.get(normalized_plate)
+    if record is None:
+        return {"status": "not_found", "plate": normalized_plate, "history": []}
+    return {"status": "ok", "service": "streamforge-backend", "record": record}

@@ -72,9 +72,37 @@ def test_dashboard_metrics_endpoint():
     assert response.json()["metrics"] == {
         "activeTrucks": 9,
         "eventsPerSecond": 13400,
+        "processingLagMs": 42,
+        "activeWorkers": 2,
+        "healthyWorkers": 2,
+        "kafkaStatus": "Healthy",
         "temperatureAlerts": 12,
         "fleetUptime": 99.2,
     }
+
+
+def test_vehicle_history_endpoint():
+    """Verify plate lookup returns owner, driver, and recent trip history."""
+    response = client.get("/vehicles/history", params={"plate": "nyc-204"})
+    assert response.status_code == 200
+    record = response.json()["record"]
+    assert record["owner"] == "Northstar Cold Logistics"
+    assert record["driver"] == "Maya Patel"
+    assert len(record["history"]) == 3
+
+
+def test_vehicle_history_endpoint_has_swagger_default():
+    """Verify Swagger can execute the lookup without manually entering a plate."""
+    response = client.get("/vehicles/history")
+    assert response.status_code == 200
+    assert response.json()["record"]["plate"] == "NYC-204"
+
+
+def test_dashboard_vehicle_history_alias():
+    """Verify the dashboard-prefixed route remains available as an alias."""
+    response = client.get("/dashboard/vehicles/history", params={"plate": "NYC-118"})
+    assert response.status_code == 200
+    assert response.json()["record"]["driver"] == "Jordan Brooks"
 
 
 def test_routes_endpoint_filters_by_all_dimensions():

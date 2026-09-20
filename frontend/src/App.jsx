@@ -6,8 +6,26 @@ import "./App.css";
 const initialMetrics = {
   activeTrucks: 1248,
   eventsPerSecond: 13400,
+  processingLagMs: 42,
+  activeWorkers: 2,
+  healthyWorkers: 2,
+  kafkaStatus: "Healthy",
   temperatureAlerts: 12,
   fleetUptime: 99.2,
+};
+
+const fallbackHistory = {
+  plate: "TS-29R2044",
+  vehicle: "Truck 204",
+  owner: "Northstar Cold Logistics",
+  driver: "Maya Patel",
+  driverStatus: "On duty",
+  lastSeen: "2026-09-19 14:32",
+  history: [
+    { date: "2026-09-19", route: "Hyderabad to Mumbai", status: "Completed", distance: "48 km" },
+    { date: "2026-09-18", route: "mumbai to hyderabad", status: "Completed", distance: "51 km" },
+    { date: "2026-09-17", route: "Midtown Express", status: "Delayed", distance: "36 km" },
+  ],
 };
 
 const defaultRoutes = {
@@ -27,8 +45,8 @@ const defaultRoutes = {
       ],
     },
     {
-      id: "truck-118",
-      name: "Truck 118",
+      id: "truck-7",
+      name: "Truck 7",
       speed: 45,
       status: "delayed",
       lat: 40.7484,
@@ -130,7 +148,7 @@ const defaultRoutes = {
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const filterOptions = {
-  truckIds: ["truck-204", "truck-118", "truck-87", "truck-1", "truck-2", "truck-3", "truck-4", "truck-5", "truck-6"],
+  truckIds: ["truck-204", "truck-7", "truck-87", "truck-1", "truck-2", "truck-3", "truck-4", "truck-5", "truck-6"],
   dates: ["2026-09-19", "2026-09-18"],
   routes: ["Hudson Cold Chain", "Midtown Express", "Queens Transfer"],
   truckTypes: ["Refrigerated", "Frozen Goods", "Produce"],
@@ -294,6 +312,10 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortOption, setSortOption] = useState("name");
   const [selectedTruckId, setSelectedTruckId] = useState(null);
+  const [plateSearch, setPlateSearch] = useState("NYC-204");
+  const [plateHistory, setPlateHistory] = useState(fallbackHistory);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -417,6 +439,30 @@ function App() {
     });
   const hasActiveTruckFilters = Boolean(normalizedSearch) || truckIdFilter !== "all" || dateFilter !== "all" || routeFilter !== "all" || truckTypeFilter !== "all" || statusFilter !== "all" || sortOption !== "name";
   const selectedTruck = truckSummaries.find((truck) => truck.id === selectedTruckId) || null;
+  const searchPlateHistory = async (event) => {
+    event.preventDefault();
+    const normalizedPlate = plateSearch.trim().toUpperCase();
+    if (!normalizedPlate) return;
+
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicles/history?plate=${encodeURIComponent(normalizedPlate)}`);
+      if (!response.ok) throw new Error("History lookup failed");
+      const data = await response.json();
+      if (data.status !== "ok" || !data.record) {
+        setPlateHistory(null);
+        setHistoryError(`No vehicle history found for ${normalizedPlate}.`);
+        return;
+      }
+      setPlateHistory(data.record);
+    } catch {
+      setPlateHistory(normalizedPlate === fallbackHistory.plate ? fallbackHistory : null);
+      setHistoryError(normalizedPlate === fallbackHistory.plate ? "Showing demo history while the API is unavailable." : "History service unavailable.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
   const averageSpeed = routes.vehicles.length
     ? Math.round(routes.vehicles.reduce((sum, truck) => sum + truck.speed, 0) / routes.vehicles.length)
     : 0;
@@ -495,6 +541,27 @@ function App() {
         </div>
       </section>
 
+      <section className="operations-grid" aria-label="Stream operations status">
+        <div className="operation-card">
+          <div className="operation-heading"><span className="operation-icon workers-icon">W</span><span>Worker health</span></div>
+          <strong>{metrics.healthyWorkers}/{metrics.activeWorkers}</strong>
+          <small>workers healthy</small>
+          <div className="health-bar"><span style={{ width: `${metrics.activeWorkers ? (metrics.healthyWorkers / metrics.activeWorkers) * 100 : 0}%` }} /></div>
+        </div>
+        <div className="operation-card">
+          <div className="operation-heading"><span className="operation-icon kafka-icon">K</span><span>Kafka status</span></div>
+          <strong className="status-value">{metrics.kafkaStatus}</strong>
+          <small>raw-telemetry · 6 partitions</small>
+          <div className="status-line"><span className="status-dot" aria-hidden="true" /> Broker connection stable</div>
+        </div>
+        <div className="operation-card">
+          <div className="operation-heading"><span className="operation-icon lag-icon">L</span><span>Processing lag</span></div>
+          <strong>{metrics.processingLagMs}<small className="unit"> ms</small></strong>
+          <small>consumer group p95</small>
+          <div className="lag-track"><span style={{ width: `${Math.min(100, metrics.processingLagMs)}%` }} /></div>
+        </div>
+      </section>
+
       <section className="topology-section">
         <div className="section-title">
           <div>
@@ -569,6 +636,40 @@ function App() {
             <strong>{truckSummaries.filter((truck) => truck.alerts > 0).length}</strong>
             <small>Route exceptions</small>
           </div>
+        </div>
+
+        <div className="history-panel">
+          <div className="history-heading">
+            <div>
+              <span className="chart-label">Asset history</span>
+              <h3>Number-plate search</h3>
+              <p>Review ownership, assigned driver, and recent trips.</p>
+            </div>
+            <form className="plate-search" onSubmit={searchPlateHistory}>
+              <label htmlFor="plate-search-input" className="sr-only">Search by number plate</label>
+              <input id="plate-search-input" value={plateSearch} onChange={(event) => setPlateSearch(event.target.value)} placeholder="e.g. NYC-204" />
+              <button type="submit" disabled={historyLoading}>{historyLoading ? "Searching..." : "Search plate"}</button>
+            </form>
+          </div>
+          {historyError && <p className="history-message" role="status">{historyError}</p>}
+          {plateHistory ? (
+            <div className="history-content">
+              <div className="owner-summary">
+                <div className="plate-badge">{plateHistory.plate}</div>
+                <div><strong>{plateHistory.vehicle}</strong><span>{plateHistory.owner}</span></div>
+              </div>
+              <div className="owner-facts">
+                <div><span>Assigned driver</span><strong>{plateHistory.driver}</strong><small>{plateHistory.driverStatus}</small></div>
+                <div><span>Last seen</span><strong>{plateHistory.lastSeen}</strong><small>Telemetry timestamp</small></div>
+              </div>
+              <div className="trip-history">
+                <div className="history-table-header"><span>Recent trip history</span><span>{plateHistory.history.length} records</span></div>
+                {plateHistory.history.map((trip) => (
+                  <div className="history-row" key={`${trip.date}-${trip.route}`}><span>{trip.date}</span><strong>{trip.route}</strong><span className={trip.status === "Delayed" ? "trip-delayed" : "trip-complete"}>{trip.status}</span><span>{trip.distance}</span></div>
+                ))}
+              </div>
+            </div>
+          ) : <div className="history-empty">No history available for this plate.</div>}
         </div>
 
         <div className="fleet-toolbar" aria-label="Filter and sort trucks">

@@ -78,6 +78,10 @@ def get_dashboard_metrics(active_trucks: int) -> dict[str, float | int]:
     return {
         "activeTrucks": active_trucks,
         "eventsPerSecond": 13400,
+        "processingLagMs": 42,
+        "activeWorkers": 2,
+        "healthyWorkers": 2,
+        "kafkaStatus": "Healthy",
         "temperatureAlerts": 12,
         "fleetUptime": 99.2,
     }
