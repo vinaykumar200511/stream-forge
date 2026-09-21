@@ -10,7 +10,7 @@ from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from streamforge.common.config import settings
-from streamforge.backend.metrics import get_dashboard_metrics, get_prometheus_metrics
+from streamforge.backend.metrics import get_dashboard_metrics, get_kafka_observability, get_prometheus_metrics
 
 # Application initialization
 app = FastAPI(
@@ -73,6 +73,9 @@ async def prometheus_metrics() -> Response:
 @app.get("/topology", tags=["Observability"])
 async def topology_view() -> Dict[str, Any]:
     """Return the live processing topology for the React Flow dashboard."""
+    kafka_metrics = get_kafka_observability()
+    kafka_status = "live" if kafka_metrics["status"] == "healthy" else "unavailable"
+    lag_status = "healthy" if kafka_metrics["maxPartitionLag"] < 1000 else "degraded"
     return {
         "status": "ok",
         "service": "streamforge-backend",
@@ -94,7 +97,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "kafka",
                 "position": {"x": 330, "y": 180},
-                "data": {"label": "Kafka: raw-telemetry", "status": "live"},
+                "data": {"label": "Kafka: raw-telemetry", "status": kafka_status, "lag": kafka_metrics["totalLag"], "consumerGroup": kafka_metrics["consumerGroup"]},
                 "style": {
                     "background": "#f97316",
                     "color": "#ffffff",
@@ -107,7 +110,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "worker1",
                 "position": {"x": 620, "y": 90},
-                "data": {"label": "Worker 01\nPartitions 0-2", "status": "healthy"},
+                "data": {"label": "Worker 01\nPartitions 0-2", "status": lag_status, "lag": sum(item["lag"] for item in kafka_metrics["partitions"] if item["partition"] in (0, 1, 2))},
                 "style": {
                     "background": "#16a34a",
                     "color": "#ffffff",
@@ -120,7 +123,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "worker2",
                 "position": {"x": 620, "y": 270},
-                "data": {"label": "Worker 02\nPartitions 3-5", "status": "healthy"},
+                "data": {"label": "Worker 02\nPartitions 3-5", "status": lag_status, "lag": sum(item["lag"] for item in kafka_metrics["partitions"] if item["partition"] in (3, 4, 5))},
                 "style": {
                     "background": "#2dd4bf",
                     "color": "#ffffff",
@@ -133,7 +136,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "aggregator",
                 "position": {"x": 900, "y": 180},
-                "data": {"label": "processed-averages", "status": "live"},
+                "data": {"label": "processed-averages", "status": kafka_status},
                 "style": {
                     "background": "#7c3aed",
                     "color": "#ffffff",
@@ -146,7 +149,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "dashboard",
                 "position": {"x": 1180, "y": 180},
-                "data": {"label": "Fleet Dashboard", "status": "streaming"},
+                "data": {"label": "Fleet Dashboard", "status": "streaming", "lag": kafka_metrics["averagePartitionLag"]},
                 "style": {
                     "background": "#0ea5e9",
                     "color": "#ffffff",
@@ -165,6 +168,7 @@ async def topology_view() -> Dict[str, Any]:
             {"id": "worker2-aggregator", "source": "worker2", "target": "aggregator", "animated": True, "label": "5m avg"},
             {"id": "aggregator-dashboard", "source": "aggregator", "target": "dashboard", "animated": True, "label": "WebSocket"},
         ],
+        "streamMetrics": kafka_metrics,
     }
 
 
@@ -176,6 +180,7 @@ async def dashboard_metrics() -> Dict[str, Any]:
         "service": "streamforge-backend",
         "updated_at": round(time.time(), 3),
         "metrics": get_dashboard_metrics(9),
+        "streamMetrics": get_kafka_observability(),
     }
 
 

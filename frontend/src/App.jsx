@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Background, ReactFlow } from "@xyflow/react";
+import { Background, Handle, Position, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
 
@@ -146,6 +146,21 @@ const defaultRoutes = {
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+const StreamNode = ({ data, id }) => (
+  <div className={`stream-node stream-node-${id} stream-node-${data.status || "unknown"}`}>
+    <Handle type="target" position={Position.Left} />
+    <div className="stream-node-heading">
+      <span className="stream-node-dot" />
+      <strong>{data.label}</strong>
+    </div>
+    <span className="stream-node-status">{data.status || "unknown"}</span>
+    {data.lag !== undefined && <small>{data.lag.toLocaleString()} lag</small>}
+    <Handle type="source" position={Position.Right} />
+  </div>
+);
+
+const nodeTypes = { stream: StreamNode };
 
 const filterOptions = {
   truckIds: ["truck-204", "truck-7", "truck-87", "truck-1", "truck-2", "truck-3", "truck-4", "truck-5", "truck-6"],
@@ -300,6 +315,7 @@ const buildFallbackTopology = () => ({
 
 function App() {
   const [metrics, setMetrics] = useState(initialMetrics);
+  const [streamMetrics, setStreamMetrics] = useState({ status: "unavailable", partitions: [], totalLag: 0, maxPartitionLag: 0, consumerGroup: "streamforge-worker" });
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -333,7 +349,7 @@ function App() {
         }
 
         setTopology({
-          nodes: data.nodes,
+          nodes: data.nodes.map((node) => ({ ...node, type: "stream" })),
           edges: data.edges.map((edge) => ({
             ...edge,
             style: { stroke: "#38bdf8", strokeWidth: 2 },
@@ -361,6 +377,9 @@ function App() {
         const data = await response.json();
         if (isMounted && data?.metrics) {
           setMetrics(data.metrics);
+        }
+        if (isMounted && data?.streamMetrics) {
+          setStreamMetrics(data.streamMetrics);
         }
       } catch {
         if (isMounted) {
@@ -410,7 +429,7 @@ function App() {
     };
   }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
 
-  const statusLabel = metrics.eventsPerSecond > 10000 ? "System: Kafka Live" : "System: Stable";
+  const statusLabel = streamMetrics.status === "healthy" ? "System: Kafka Live" : "System: Kafka unavailable";
   const liveSummary = lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Fallback topology";
   const truckSummaries = routes.vehicles.map((truck) => ({
     ...truck,
@@ -562,6 +581,26 @@ function App() {
         </div>
       </section>
 
+      <section className="lag-panel" aria-label="Kafka partition lag">
+        <div className="lag-panel-heading">
+          <div>
+            <span className="chart-label">Consumer group</span>
+            <h2>{streamMetrics.consumerGroup}</h2>
+          </div>
+          <div className="lag-summary"><strong>{streamMetrics.totalLag.toLocaleString()}</strong><span>total lag</span></div>
+          <div className="lag-summary"><strong>{streamMetrics.maxPartitionLag.toLocaleString()}</strong><span>peak partition lag</span></div>
+        </div>
+        <div className="partition-grid">
+          {(streamMetrics.partitions || []).map((partition) => (
+            <div className={`partition-cell ${partition.lag > 1000 ? "is-warning" : ""}`} key={partition.partition}>
+              <span>Partition {partition.partition}</span>
+              <strong>{partition.lag.toLocaleString()}</strong>
+              <small>{partition.consumerOffset.toLocaleString()} / {partition.logEndOffset.toLocaleString()}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="topology-section">
         <div className="section-title">
           <div>
@@ -572,8 +611,13 @@ function App() {
 
         <div className="flow-container">
           <ReactFlow
-            nodes={topology.nodes}
+            nodes={topology.nodes.map((node) => ({
+              ...node,
+              type: node.type || "stream",
+              style: { ...node.style, padding: 0, background: "transparent", border: "none" },
+            }))}
             edges={topology.edges}
+            nodeTypes={nodeTypes}
             fitView
             nodesDraggable={false}
             nodesConnectable={false}
@@ -915,8 +959,8 @@ function App() {
       <section className="route-panel">
         <div className="section-title">
           <div>
-            <h2>Movement Visualization</h2>
-            <p>GPS route tracking and truck movement</p>
+            <h2>GPS Route History</h2>
+            <p>Live position, route breadcrumbs, and movement history</p>
           </div>
         </div>
 
@@ -981,6 +1025,30 @@ function App() {
                 </div>
               </button>
             ))}
+          </div>
+
+          <div className="route-history">
+            <div className="route-history-heading">
+              <div>
+                <span className="chart-label">Breadcrumb history</span>
+                <h3>{selectedTruck ? selectedTruck.name : "Select a truck"}</h3>
+              </div>
+              {selectedTruck && <span className={`summary-status ${selectedTruck.statusClass}`}>{selectedTruck.statusText}</span>}
+            </div>
+            {selectedTruck ? (
+              <>
+                <div className="route-history-meta"><span>{selectedTruck.route_name || "Active route"}</span><strong>{selectedTruck.speed} km/h</strong></div>
+                <ol className="breadcrumb-list">
+                  {selectedTruck.route.map((point, index) => (
+                    <li key={`${point.lat}-${point.lng}`} className={index === selectedTruck.route.length - 1 ? "is-current" : ""}>
+                      <span>Point {index + 1}</span>
+                      <strong>{point.lat.toFixed(4)}, {point.lng.toFixed(4)}</strong>
+                      {index === selectedTruck.route.length - 1 && <small>Current GPS position</small>}
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : <p className="history-empty">Choose a truck on the map or in the list to inspect its GPS route.</p>}
           </div>
         </div>
       </section>
