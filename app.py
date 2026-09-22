@@ -57,7 +57,7 @@ class WindowStats(faust.Record, serializer='json'):
     max_temp: float = -999.0
 
 # Matches streamforge/common/config.py -> KAFKA_RAW_TOPIC (default: "raw-telemetry")
-raw_topic = app.topic('raw-telemetry', value_type=RawTelemetryEvent)
+raw_topic = app.topic('raw-telemetry', key_type=str, value_type=RawTelemetryEvent)
 
 SENSOR_MIN_PLAUSIBLE_TEMP = -60.0
 SENSOR_MAX_PLAUSIBLE_TEMP = 60.0
@@ -92,18 +92,10 @@ def update_stats(current: WindowStats, temp: float) -> WindowStats:
 
 
 def is_too_late(event_timestamp: float, current_time: float) -> bool:
-    """
-    An event is considered unrecoverably late (its window has already closed
-    and won't reopen) if it arrives older than the grace period allows.
-    """
     lateness = current_time - event_timestamp
     return lateness > (WINDOW_SIZE_SECONDS + GRACE_PERIOD_SECONDS)
 
 
-# Windowed table: keyed by "customer_id:truck_id", tracks running stats
-# across a 5-minute hopping window that advances every 10 seconds.
-# expires= gives late events up to GRACE_PERIOD_SECONDS extra time to land
-# in their correct window before that window is finalized and discarded.
 temp_windows = app.Table(
     'temp-windows',
     default=WindowStats,
@@ -116,21 +108,24 @@ temp_windows = app.Table(
 
 @app.agent(raw_topic)
 async def process_telemetry(events):
-    async for event in events.group_by(lambda e: f"{e.customer_id}:{e.truck_id}"):
-        # --- Filter stage: drop physically impossible sensor glitches ---
+    # --- TEMPORARY DEBUG: bypass group_by entirely to isolate whether raw
+    # messages are being received/deserialized at all. ---
+    async for raw_event in events:
+        print(f"[RAW RECEIVED] truck={raw_event.truck_id} temp={raw_event.temperature}")
+    return
+
+    # --- Original pipeline (temporarily unreachable while debugging) ---
+    async for event in events.group_by(lambda e: f"{e.customer_id}:{e.truck_id}", name="by_truck"):
         if not (SENSOR_MIN_PLAUSIBLE_TEMP <= event.temperature <= SENSOR_MAX_PLAUSIBLE_TEMP):
             continue
 
-        # --- Late-arrival guard: drop events too old to matter anymore ---
         if is_too_late(event.timestamp, time.time()):
             print(f"[DROPPED - too late] truck={event.truck_id} timestamp={event.timestamp}")
             continue
 
-        # --- Map stage: reshape + flag breach status ---
         mapped = map_event(event)
         key = f"{mapped.customer_id}:{mapped.truck_id}"
 
-        # --- Windowing stage: fold this reading into the current window's stats ---
         current = temp_windows[key].value()
         temp_windows[key] = update_stats(current, mapped.temperature)
 
