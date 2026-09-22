@@ -38,10 +38,10 @@ const defaultRoutes = {
       lat: 40.7128,
       lng: -74.006,
       route: [
-        { lat: 40.7000, lng: -74.01 },
-        { lat: 40.7060, lng: -74.02 },
-        { lat: 40.7128, lng: -74.006 },
-        { lat: 40.72, lng: -73.99 },
+        { lat: 40.7000, lng: -74.01, timestamp: 1726752600 },
+        { lat: 40.7060, lng: -74.02, timestamp: 1726752660 },
+        { lat: 40.7128, lng: -74.006, timestamp: 1726752720 },
+        { lat: 40.72, lng: -73.99, timestamp: 1726752780 },
       ],
     },
     {
@@ -161,6 +161,28 @@ const StreamNode = ({ data, id }) => (
 );
 
 const nodeTypes = { stream: StreamNode };
+
+const applyLiveMetricsToTopology = (currentTopology, liveMetrics) => {
+  const group = liveMetrics?.groups?.[0];
+  const partitions = (group?.topics || []).flatMap((topic) => topic.partitions || []);
+  const totalLag = group?.totalLag || 0;
+  const lagStatus = totalLag > 1000 ? "degraded" : liveMetrics?.status === "healthy" ? "healthy" : "unavailable";
+  return {
+    ...currentTopology,
+    nodes: currentTopology.nodes.map((node) => {
+      if (node.id === "kafka") {
+        return { ...node, data: { ...node.data, status: liveMetrics?.status === "healthy" ? "live" : "unavailable", lag: totalLag } };
+      }
+      if (node.id === "worker1") {
+        return { ...node, data: { ...node.data, status: lagStatus, lag: partitions.filter((item) => item.partition <= 2).reduce((sum, item) => sum + item.lag, 0) } };
+      }
+      if (node.id === "worker2") {
+        return { ...node, data: { ...node.data, status: lagStatus, lag: partitions.filter((item) => item.partition > 2).reduce((sum, item) => sum + item.lag, 0) } };
+      }
+      return node;
+    }),
+  };
+};
 
 const filterOptions = {
   truckIds: ["truck-204", "truck-7", "truck-87", "truck-1", "truck-2", "truck-3", "truck-4", "truck-5", "truck-6"],
@@ -388,6 +410,29 @@ function App() {
       }
     };
 
+    const connectMetricsStream = () => {
+      const socketUrl = `${API_BASE_URL.replace(/^http/, "ws")}/api/metrics/stream`;
+      const socket = new WebSocket(socketUrl);
+      socket.onmessage = (event) => {
+        if (!isMounted) return;
+        const liveMetrics = JSON.parse(event.data);
+        const group = liveMetrics?.groups?.[0];
+        const partitions = (group?.topics || []).flatMap((topic) => topic.partitions || []);
+        setStreamMetrics({
+          status: liveMetrics.status,
+          consumerGroup: group?.consumerGroup || "streamforge-worker",
+          partitions: partitions.map((item) => ({ partition: item.partition, consumerOffset: item.currentOffset, logEndOffset: item.latestOffset, lag: item.lag })),
+          totalLag: group?.totalLag || 0,
+          maxPartitionLag: Math.max(0, ...partitions.map((item) => item.lag)),
+        });
+        setTopology((currentTopology) => applyLiveMetricsToTopology(currentTopology, liveMetrics));
+        setLastUpdated(new Date());
+        setConnectionState(liveMetrics.status === "healthy" ? "live" : "fallback");
+      };
+      socket.onerror = () => socket.close();
+      return socket;
+    };
+
     const fetchRoutes = async () => {
       try {
         const params = new URLSearchParams();
@@ -417,6 +462,7 @@ function App() {
     fetchTopology();
     fetchMetrics();
     fetchRoutes();
+    const metricsSocket = connectMetricsStream();
     const topologyInterval = window.setInterval(fetchTopology, 4000);
     const routeInterval = window.setInterval(fetchRoutes, 5000);
     const metricsInterval = window.setInterval(fetchMetrics, 5000);
@@ -426,6 +472,7 @@ function App() {
       window.clearInterval(topologyInterval);
       window.clearInterval(routeInterval);
       window.clearInterval(metricsInterval);
+      metricsSocket.close();
     };
   }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
 
@@ -992,6 +1039,7 @@ function App() {
                       strokeDasharray={truck.status === "delayed" ? "8 8" : "0"}
                       opacity="0.9"
                     />
+                    {selectedTruckId === truck.id && <polyline points={pathPoints} fill="none" stroke="#f8fafc" strokeWidth="1" opacity="0.8" />}
                     <circle
                       cx={currentPosition[0]}
                       cy={currentPosition[1]}
@@ -1043,6 +1091,7 @@ function App() {
                     <li key={`${point.lat}-${point.lng}`} className={index === selectedTruck.route.length - 1 ? "is-current" : ""}>
                       <span>Point {index + 1}</span>
                       <strong>{point.lat.toFixed(4)}, {point.lng.toFixed(4)}</strong>
+                      {point.timestamp && <small>{new Date(point.timestamp * 1000).toLocaleTimeString()}</small>}
                       {index === selectedTruck.route.length - 1 && <small>Current GPS position</small>}
                     </li>
                   ))}

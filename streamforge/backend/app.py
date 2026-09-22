@@ -3,14 +3,16 @@ StreamForge API & Observability Tier — FastAPI Application Entrypoint.
 Provides operational health checks, Prometheus /metrics exporter, and telemetry APIs.
 """
 
+import asyncio
 import time
 from typing import Dict, Any
 
-from fastapi import FastAPI, Query, Response
+from fastapi import FastAPI, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from streamforge.common.config import settings
 from streamforge.backend.metrics import get_dashboard_metrics, get_kafka_observability, get_prometheus_metrics
+from streamforge.backend.kafka_metrics import kafka_metrics_service
 
 # Application initialization
 app = FastAPI(
@@ -32,6 +34,16 @@ app.add_middleware(
 
 # Server startup timestamp for uptime tracking
 START_TIME = time.time()
+
+
+@app.on_event("startup")
+async def start_metrics_collection() -> None:
+    await kafka_metrics_service.start()
+
+
+@app.on_event("shutdown")
+async def stop_metrics_collection() -> None:
+    await kafka_metrics_service.stop()
 
 
 @app.get("/", tags=["General"])
@@ -61,6 +73,34 @@ async def health_check() -> Dict[str, Any]:
         "timestamp": round(time.time(), 3),
         "kafka_bootstrap": settings.KAFKA_BOOTSTRAP_SERVERS,
     }
+
+
+@app.get("/api/metrics/consumer-groups", tags=["Observability"])
+async def consumer_group_metrics() -> Dict[str, Any]:
+    """Return the latest cached authoritative Kafka consumer-group metrics."""
+    return kafka_metrics_service.snapshot()
+
+
+@app.get("/api/metrics/consumer-groups/{group_id}", tags=["Observability"])
+async def consumer_group_metric(group_id: str) -> Dict[str, Any]:
+    """Return one cached consumer-group metric record."""
+    snapshot = kafka_metrics_service.snapshot()
+    group = next((item for item in snapshot["groups"] if item["consumerGroup"] == group_id), None)
+    if group is None:
+        return {"status": snapshot["status"], "consumerGroup": group_id, "topics": [], "timestamp": snapshot["timestamp"]}
+    return {"status": snapshot["status"], **group}
+
+
+@app.websocket("/api/metrics/stream")
+async def metrics_stream(websocket: WebSocket) -> None:
+    """Push cached metrics to the dashboard without creating Kafka clients per browser."""
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.send_json(kafka_metrics_service.snapshot())
+            await asyncio.sleep(settings.KAFKA_METRICS_POLL_INTERVAL_SECONDS)
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        return
 
 
 @app.get("/metrics", tags=["Observability"])
@@ -355,6 +395,13 @@ async def route_view(
         and (not route or vehicle["route_name"].lower() == route.lower())
         and (not truck_type or vehicle["truck_type"].lower() == truck_type.lower())
     ]
+
+    for vehicle in filtered_vehicles:
+        point_count = len(vehicle["route"])
+        vehicle["route"] = [
+            {**point, "timestamp": round(time.time() - (point_count - index - 1) * 60, 3)}
+            for index, point in enumerate(vehicle["route"])
+        ]
 
     return {
         "status": "ok",

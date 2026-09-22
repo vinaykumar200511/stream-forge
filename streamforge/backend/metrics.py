@@ -15,6 +15,7 @@ from prometheus_client import (
 )
 
 from streamforge.common.config import settings
+from streamforge.backend.kafka_metrics import kafka_metrics_service
 
 # Shared metrics registry
 registry = REGISTRY
@@ -111,76 +112,32 @@ def get_dashboard_metrics(active_trucks: int) -> dict[str, float | int]:
 
 
 def get_kafka_observability() -> dict[str, Any]:
-    """Read consumer-group offsets and partition watermarks when Kafka is available."""
-    group = "streamforge-worker"
-    topic = settings.KAFKA_RAW_TOPIC
-    partition_count = settings.KAFKA_NUM_PARTITIONS
+    """Adapt the cached authoritative metrics to the existing dashboard contract."""
+    snapshot = kafka_metrics_service.snapshot()
+    group = next(
+        (item for item in snapshot["groups"] if item["consumerGroup"] == settings.KAFKA_METRICS_GROUPS.split(",")[0]),
+        None,
+    )
     partitions = [
-        {"partition": partition, "consumerOffset": 0, "logEndOffset": 0, "lag": 0}
-        for partition in range(partition_count)
+        {
+            "partition": item["partition"],
+            "consumerOffset": item["currentOffset"],
+            "logEndOffset": item["latestOffset"],
+            "lag": item["lag"],
+        }
+        for topic in (group or {}).get("topics", [])
+        for item in topic["partitions"]
     ]
-
-    try:
-        from confluent_kafka import Consumer, TopicPartition
-        from confluent_kafka.admin import AdminClient
-
-        admin = AdminClient({"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS})
-        offsets = admin.list_consumer_group_offsets(
-            group,
-            [TopicPartition(topic, partition) for partition in range(partition_count)],
-        )
-        offset_map = offsets.result(timeout=2.0) if hasattr(offsets, "result") else offsets
-        consumer = Consumer({
-            "bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": f"{group}-metrics",
-            "enable.auto.commit": False,
-        })
-        try:
-            metadata = consumer.list_topics(topic=topic, timeout=2.0)
-            topic_metadata = metadata.topics.get(topic)
-            if topic_metadata is None:
-                raise RuntimeError(f"Kafka topic not found: {topic}")
-
-            partitions = []
-            for partition in sorted(topic_metadata.partitions):
-                topic_partition = TopicPartition(topic, partition)
-                committed = offset_map.get(topic_partition)
-                consumer_offset = getattr(committed, "offset", -1) if committed else -1
-                _, log_end_offset = consumer.get_watermark_offsets(topic_partition, timeout=2.0)
-                lag = max(0, log_end_offset - max(0, consumer_offset))
-                partitions.append({
-                    "partition": partition,
-                    "consumerOffset": max(0, consumer_offset),
-                    "logEndOffset": log_end_offset,
-                    "lag": lag,
-                })
-                labels = {"group": group, "topic": topic, "partition": str(partition)}
-                KAFKA_CONSUMER_GROUP_LAG.labels(**labels).set(lag)
-                KAFKA_PARTITION_CONSUMER_OFFSET.labels(**labels).set(max(0, consumer_offset))
-                KAFKA_PARTITION_LOG_END_OFFSET.labels(topic=topic, partition=str(partition)).set(log_end_offset)
-        finally:
-            consumer.close()
-
-        total_lag = sum(item["lag"] for item in partitions)
-        return {
-            "status": "healthy",
-            "consumerGroup": group,
-            "topic": topic,
-            "partitions": partitions,
-            "totalLag": total_lag,
-            "maxPartitionLag": max((item["lag"] for item in partitions), default=0),
-            "averagePartitionLag": round(total_lag / len(partitions), 1) if partitions else 0,
-        }
-    except Exception:
-        return {
-            "status": "unavailable",
-            "consumerGroup": group,
-            "topic": topic,
-            "partitions": partitions,
-            "totalLag": 0,
-            "maxPartitionLag": 0,
-            "averagePartitionLag": 0,
-        }
+    return {
+        "status": snapshot["status"],
+        "consumerGroup": (group or {}).get("consumerGroup", settings.KAFKA_METRICS_GROUPS.split(",")[0]),
+        "topic": (group or {}).get("topics", [{"topic": settings.KAFKA_RAW_TOPIC}])[0].get("topic", settings.KAFKA_RAW_TOPIC),
+        "partitions": partitions,
+        "totalLag": (group or {}).get("totalLag", 0),
+        "maxPartitionLag": max((item["lag"] for item in partitions), default=0),
+        "averagePartitionLag": round((group or {}).get("totalLag", 0) / len(partitions), 1) if partitions else 0,
+        "timestamp": snapshot["timestamp"],
+    }
 
 
 def get_prometheus_metrics() -> Tuple[bytes, str]:

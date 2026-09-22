@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     KAFKA_DEAD_LETTER_TOPIC: str = Field(default="telemetry-dead-letter")
     KAFKA_NUM_PARTITIONS: int = Field(default=6)
     KAFKA_REPLICATION_FACTOR: int = Field(default=1)
+    KAFKA_METRICS_GROUPS: str = Field(default="streamforge-worker")
+    KAFKA_METRICS_POLL_INTERVAL_SECONDS: float = Field(default=5.0, gt=0)
+    KAFKA_METRICS_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0)
 
     # Stream Processing Engine Configuration
     WINDOW_SIZE_SECONDS: int = Field(default=300)

@@ -62,6 +62,7 @@ def test_routes_endpoint():
     assert len(data["vehicles"]) >= 9
     assert data["vehicles"][-6]["name"] == "Truck 1"
     assert all("route" in vehicle for vehicle in data["vehicles"])
+    assert all("timestamp" in point for vehicle in data["vehicles"] for point in vehicle["route"])
     assert all({"telemetry_date", "route_name", "truck_type"} <= vehicle.keys() for vehicle in data["vehicles"])
 
 
@@ -79,6 +80,16 @@ def test_dashboard_metrics_endpoint():
         "temperatureAlerts": 12,
         "fleetUptime": 99.2,
     }
+
+
+def test_consumer_group_metrics_endpoint_returns_cached_contract():
+    """Verify the authoritative lag API is available even when Kafka is offline."""
+    response = client.get("/api/metrics/consumer-groups")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] in {"healthy", "unavailable"}
+    assert isinstance(data["groups"], list)
+    assert "timestamp" in data
 
 
 def test_vehicle_history_endpoint():
