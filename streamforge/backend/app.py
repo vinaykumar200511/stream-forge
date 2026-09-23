@@ -4,6 +4,7 @@ Provides operational health checks, Prometheus /metrics exporter, and telemetry 
 """
 
 import asyncio
+import math
 import time
 from typing import Dict, Any
 
@@ -123,6 +124,63 @@ async def temperature_alerts() -> Dict[str, Any]:
         "alerts": operations_service.alerts.active_alerts(),
         "updatedAt": operations_service.overview()["updatedAt"],
     }
+
+
+@app.get("/api/metrics/temperature", tags=["Operations"])
+async def temperature_metrics() -> Dict[str, Any]:
+    """Return temperature history status; raw historical samples are not persisted yet."""
+    return operations_service.overview()["temperature"] | {
+        "threshold": operations_service.alerts.threshold,
+        "updatedAt": operations_service.overview()["updatedAt"],
+    }
+
+
+@app.get("/api/metrics/throughput", tags=["Operations"])
+async def throughput_metrics() -> Dict[str, Any]:
+    """Return the existing authoritative event-rate metric and history availability."""
+    return operations_service.overview()["throughput"] | {"updatedAt": operations_service.overview()["updatedAt"]}
+
+
+def _route_distance_km(route: list[dict[str, Any]]) -> float:
+    distance = 0.0
+    for first, second in zip(route, route[1:]):
+        lat_delta = math.radians(second["lat"] - first["lat"])
+        lng_delta = math.radians(second["lng"] - first["lng"])
+        a = math.sin(lat_delta / 2) ** 2 + math.cos(math.radians(first["lat"])) * math.cos(math.radians(second["lat"])) * math.sin(lng_delta / 2) ** 2
+        distance += 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return round(distance, 2)
+
+
+@app.get("/api/trips", tags=["Operations"])
+async def trips() -> Dict[str, Any]:
+    """Expose route-backed trip records using the current telemetry contract."""
+    route_data = await route_view(None, None, None, None)
+    items = [
+        {
+            "tripId": f"trip-{vehicle['id']}",
+            "vehicleId": vehicle["id"],
+            "vehicle": vehicle["name"],
+            "status": "IN_PROGRESS" if vehicle["status"] == "moving" else "PAUSED",
+            "route": vehicle["route"],
+            "currentLocation": {"lat": vehicle["lat"], "lng": vehicle["lng"]},
+            "speedKmh": vehicle["speed"],
+            "distanceKm": _route_distance_km(vehicle["route"]),
+            "routeName": vehicle.get("route_name"),
+            "updatedAt": route_data["updated_at"],
+        }
+        for vehicle in route_data["vehicles"]
+    ]
+    return {"status": "ok", "updatedAt": route_data["updated_at"], "items": items}
+
+
+@app.get("/api/trips/{trip_id}", tags=["Operations"])
+async def trip_detail(trip_id: str) -> Dict[str, Any]:
+    """Return one route-backed trip or a clear not-found response."""
+    data = await trips()
+    item = next((trip for trip in data["items"] if trip["tripId"] == trip_id), None)
+    if item is None:
+        return {"status": "not_found", "tripId": trip_id}
+    return {"status": "ok", "trip": item}
 
 
 @app.websocket("/api/operations/stream")

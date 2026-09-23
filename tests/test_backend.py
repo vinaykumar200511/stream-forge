@@ -92,6 +92,32 @@ def test_consumer_group_metrics_endpoint_returns_cached_contract():
     assert "timestamp" in data
 
 
+def test_operations_metric_endpoints_report_source_status():
+    temperature = client.get("/api/metrics/temperature")
+    throughput = client.get("/api/metrics/throughput")
+    assert temperature.status_code == 200
+    assert temperature.json()["status"] == "unavailable"
+    assert temperature.json()["threshold"] == -10.0
+    assert throughput.status_code == 200
+    assert throughput.json()["status"] == "available"
+    assert throughput.json()["current"] > 0
+
+
+def test_trips_endpoint_maps_existing_route_records():
+    response = client.get("/api/trips")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["items"]
+    assert {"tripId", "vehicleId", "route", "currentLocation", "distanceKm"} <= data["items"][0].keys()
+
+
+def test_trip_detail_returns_not_found_for_unknown_trip():
+    response = client.get("/api/trips/trip-missing")
+    assert response.status_code == 200
+    assert response.json() == {"status": "not_found", "tripId": "trip-missing"}
+
+
 def test_vehicle_history_endpoint():
     """Verify plate lookup returns owner, driver, and recent trip history."""
     response = client.get("/vehicles/history", params={"plate": "nyc-204"})

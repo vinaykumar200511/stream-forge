@@ -191,44 +191,10 @@ const filterOptions = {
   truckTypes: ["Refrigerated", "Frozen Goods", "Produce"],
 };
 
-const temperatureTrend = [
-  { label: "00:00", value: 3.4 },
-  { label: "04:00", value: 3.9 },
-  { label: "08:00", value: 4.5 },
-  { label: "12:00", value: 5.1 },
-  { label: "16:00", value: 4.8 },
-  { label: "20:00", value: 5.4 },
-  { label: "24:00", value: 4.9 },
-];
-
-const tripTrend = [
-  { label: "Mon", value: 182 },
-  { label: "Tue", value: 208 },
-  { label: "Wed", value: 196 },
-  { label: "Thu", value: 221 },
-  { label: "Fri", value: 238 },
-  { label: "Sat", value: 255 },
-  { label: "Sun", value: 247 },
-];
-
 const formatNumber = (value) =>
   new Intl.NumberFormat("en-US", {
     maximumFractionDigits: value >= 1000 ? 0 : 1,
   }).format(value);
-
-const buildChartPoints = (series, width, height, padding) => {
-  const values = series.map((item) => item.value);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const range = maxValue - minValue || 1;
-
-  return series.map((item, index) => {
-    const x = padding + (index / (series.length - 1)) * (width - padding * 2);
-    const y = height - padding - ((item.value - minValue) / range) * (height - padding * 2);
-
-    return { ...item, x, y };
-  });
-};
 
 const getRouteSummary = (truck) => {
   const routeLength = truck.route?.length || 1;
@@ -347,6 +313,7 @@ function App() {
     loads: { status: "loading", items: [] },
     deliveries: { status: "loading", items: [] },
   });
+  const [trips, setTrips] = useState({ status: "loading", items: [] });
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -430,6 +397,17 @@ function App() {
       }
     };
 
+    const fetchTrips = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/trips`);
+        if (!response.ok) throw new Error(`Trips fetch failed: ${response.status}`);
+        const data = await response.json();
+        if (isMounted) setTrips(data);
+      } catch {
+        if (isMounted) setTrips({ status: "unavailable", items: [] });
+      }
+    };
+
     const connectMetricsStream = () => {
       const socketUrl = `${API_BASE_URL.replace(/^http/, "ws")}/api/metrics/stream`;
       const socket = new WebSocket(socketUrl);
@@ -483,12 +461,14 @@ function App() {
     fetchTopology();
     fetchMetrics();
     fetchOperations();
+    fetchTrips();
     fetchRoutes();
     const metricsSocket = connectMetricsStream();
     const topologyInterval = window.setInterval(fetchTopology, 4000);
     const routeInterval = window.setInterval(fetchRoutes, 5000);
     const metricsInterval = window.setInterval(fetchMetrics, 5000);
     const operationsInterval = window.setInterval(fetchOperations, 10000);
+    const tripsInterval = window.setInterval(fetchTrips, 10000);
 
     return () => {
       isMounted = false;
@@ -496,6 +476,7 @@ function App() {
       window.clearInterval(routeInterval);
       window.clearInterval(metricsInterval);
       window.clearInterval(operationsInterval);
+      window.clearInterval(tripsInterval);
       metricsSocket.close();
     };
   }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
@@ -582,13 +563,6 @@ function App() {
     const y = 228 - ((point.lat - mapBounds.minLat) / (mapBounds.maxLat - mapBounds.minLat || 1)) * 180;
     return `${x},${y}`;
   };
-
-  const tempChartPoints = buildChartPoints(temperatureTrend, 420, 180, 24);
-  const tripChartPoints = buildChartPoints(tripTrend, 420, 180, 24);
-  const tempLinePath = tempChartPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const tripLinePath = tripChartPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const tempAreaPath = `${tempLinePath} L ${tempChartPoints[tempChartPoints.length - 1].x} 156 L ${tempChartPoints[0].x} 156 Z`;
-  const tripAreaPath = `${tripLinePath} L ${tripChartPoints[tripChartPoints.length - 1].x} 156 L ${tripChartPoints[0].x} 156 Z`;
 
   return (
     <main className="dashboard">
@@ -677,8 +651,14 @@ function App() {
         </article>
         <article className="phase-two-panel phase-two-wide">
           <div className="section-title compact-title"><div><span className="chart-label">Operations</span><h2>Trips, loads, and deliveries</h2></div></div>
-          <div className="domain-status-grid">
-            {["trips", "loads", "deliveries"].map((domain) => (
+          <div className="trip-view-grid">
+            <div className="trip-list">
+              <div className="domain-status-heading"><span>Trip view</span><strong>{trips.items?.length || 0} active records</strong></div>
+              {trips.items?.length ? trips.items.slice(0, 4).map((trip) => (
+                <div className="trip-view-row" key={trip.tripId}><div><strong>{trip.vehicle}</strong><span>{trip.routeName || "Route history"} · {trip.status}</span></div><b>{trip.distanceKm} km</b></div>
+              )) : <p className="data-state">{trips.status === "loading" ? "Loading trip data..." : "No trip data available."}</p>}
+            </div>
+            {["loads", "deliveries"].map((domain) => (
               <div key={domain} className="domain-status"><span>{domain}</span><strong>{operations[domain]?.status}</strong><small>{operations[domain]?.status === "unavailable" ? operations[domain]?.message : `${operations[domain]?.items?.length || 0} records`}</small></div>
             ))}
           </div>
@@ -988,74 +968,19 @@ function App() {
       <section className="analytics-panel">
         <div className="section-title">
           <div>
-            <h2>Analytics Graphs</h2>
-            <p>Temperature drift and trip volume across the recent cycle</p>
+            <h2>Telemetry analytics</h2>
+            <p>Charts are driven by backend history sources; unavailable histories are shown explicitly.</p>
           </div>
         </div>
-
         <div className="chart-grid">
-          <article className="chart-card">
-            <div className="chart-header">
-              <div>
-                <span className="chart-label">Temperature</span>
-                <strong>Thermal drift</strong>
-              </div>
-              <span className="chart-tag tag-amber">+5.4°</span>
-            </div>
-
-            <svg viewBox="0 0 420 180" className="chart-svg" role="img" aria-label="Temperature analytics chart">
-              <defs>
-                <linearGradient id="tempGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.35" />
-                  <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.04" />
-                </linearGradient>
-              </defs>
-              {[0, 1, 2, 3].map((step) => (
-                <line key={`temp-grid-${step}`} x1="24" x2="396" y1={30 + step * 36} y2={30 + step * 36} stroke="#1e293b" strokeWidth="1" />
-              ))}
-              <path d={tempAreaPath} fill="url(#tempGradient)" />
-              <path d={tempLinePath} fill="none" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              {tempChartPoints.map((point) => (
-                <circle key={point.label} cx={point.x} cy={point.y} r="4" fill="#facc15" stroke="#fff" strokeWidth="2" />
-              ))}
-              {tempChartPoints.map((point) => (
-                <text key={`temp-label-${point.label}`} x={point.x} y="170" textAnchor="middle" fill="#94a3b8" fontSize="10">
-                  {point.label}
-                </text>
-              ))}
-            </svg>
+          <article className="chart-card source-chart">
+            <div className="chart-header"><div><span className="chart-label">Temperature</span><strong>Historical readings</strong></div><span className="chart-tag tag-amber">{operations.temperature?.status}</span></div>
+            <div className="chart-empty"><strong>{operations.temperature?.status === "unavailable" ? "No temperature history" : "Loading temperature history"}</strong><span>{operations.temperature?.message || "Select a device and time range when historical samples are available."}</span><small>Threshold: {operations.temperature?.threshold ?? "-"}°C</small></div>
           </article>
-
-          <article className="chart-card">
-            <div className="chart-header">
-              <div>
-                <span className="chart-label">Trips</span>
-                <strong>Completed</strong>
-              </div>
-              <span className="chart-tag tag-blue">+13.7%</span>
-            </div>
-
-            <svg viewBox="0 0 420 180" className="chart-svg" role="img" aria-label="Trips completed chart">
-              <defs>
-                <linearGradient id="tripGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.28" />
-                  <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.04" />
-                </linearGradient>
-              </defs>
-              {[0, 1, 2, 3].map((step) => (
-                <line key={`trip-grid-${step}`} x1="24" x2="396" y1={30 + step * 36} y2={30 + step * 36} stroke="#1e293b" strokeWidth="1" />
-              ))}
-              <path d={tripAreaPath} fill="url(#tripGradient)" />
-              <path d={tripLinePath} fill="none" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              {tripChartPoints.map((point) => (
-                <circle key={point.label} cx={point.x} cy={point.y} r="4" fill="#38bdf8" stroke="#fff" strokeWidth="2" />
-              ))}
-              {tripChartPoints.map((point) => (
-                <text key={`trip-label-${point.label}`} x={point.x} y="170" textAnchor="middle" fill="#94a3b8" fontSize="10">
-                  {point.label}
-                </text>
-              ))}
-            </svg>
+          <article className="chart-card source-chart">
+            <div className="chart-header"><div><span className="chart-label">Throughput</span><strong>Events per second</strong></div><span className="chart-tag tag-blue">{operations.throughput?.status}</span></div>
+            <div className="throughput-chart-value"><strong>{formatNumber(operations.throughput?.current || 0)}</strong><span>current events/s</span><small>Average {formatNumber(operations.throughput?.average || 0)} · Peak {formatNumber(operations.throughput?.peak || 0)}</small></div>
+            <div className="chart-empty compact"><span>{operations.throughput?.points?.length ? "Historical throughput available." : "Historical throughput is not persisted yet."}</span></div>
           </article>
         </div>
       </section>

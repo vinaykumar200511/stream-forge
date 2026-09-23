@@ -221,6 +221,15 @@ h1 {
 .throughput-values strong small { color: #94a3b8; font-size: 12px; }
 .throughput-values span { color: #94a3b8; font-size: 12px; }
 .domain-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.trip-view-grid { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; }
+.trip-list { display: grid; gap: 8px; padding: 13px; border: 1px solid #24364d; border-radius: 9px; background: #0b192b; }
+.domain-status-heading { display: flex; justify-content: space-between; gap: 12px; color: #cbd5e1; font-size: 12px; font-weight: 700; }
+.domain-status-heading strong { color: #7dd3fc; font-size: 11px; font-weight: 600; }
+.trip-view-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 9px; border-top: 1px solid rgba(56, 80, 108, 0.45); }
+.trip-view-row div { display: grid; gap: 3px; min-width: 0; }
+.trip-view-row strong { color: #f8fafc; font-size: 12px; }
+.trip-view-row span { overflow: hidden; color: #94a3b8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.trip-view-row b { color: #86efac; font-size: 12px; white-space: nowrap; }
 .domain-status { display: grid; gap: 6px; padding: 13px; border: 1px solid #24364d; border-radius: 9px; background: #0b192b; }
 .domain-status span { color: #cbd5e1; font-size: 12px; font-weight: 700; text-transform: capitalize; }
 .domain-status strong { color: #facc15; font-size: 13px; text-transform: uppercase; }
@@ -1033,3 +1042,11 @@ h1 {
     justify-content: flex-start;
   }
 }
+
+.chart-empty { display: grid; align-content: center; gap: 8px; min-height: 180px; padding: 24px; border: 1px dashed #38506c; border-radius: 10px; background: rgba(15, 23, 42, 0.7); }
+.chart-empty strong { color: #f8fafc; font-size: 16px; }
+.chart-empty span, .chart-empty small { color: #94a3b8; font-size: 12px; }
+.chart-empty.compact { min-height: auto; margin-top: 14px; padding: 10px 12px; }
+.throughput-chart-value { display: grid; gap: 5px; min-height: 92px; align-content: center; padding: 16px; border-radius: 10px; background: rgba(15, 23, 42, 0.7); }
+.throughput-chart-value strong { color: #7dd3fc; font-size: 32px; }
+.throughput-chart-value span, .throughput-chart-value small { color: #94a3b8; font-size: 12px; }
