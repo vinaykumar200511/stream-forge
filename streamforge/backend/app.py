@@ -8,13 +8,22 @@ import math
 import time
 from typing import Dict, Any
 
-from fastapi import FastAPI, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Response, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from streamforge.common.config import settings
 from streamforge.backend.metrics import get_dashboard_metrics, get_kafka_observability, get_prometheus_metrics
 from streamforge.backend.kafka_metrics import kafka_metrics_service
 from streamforge.backend.operations import operations_service
+from streamforge.backend.performance import performance_service
+
+
+class ThroughputTestRequest(BaseModel):
+    duration_seconds: float = Field(default=1.0, gt=0, le=30)
+    target_rate: int = Field(default=1000, gt=0, le=100000)
+    payload_size: int = Field(default=256, gt=0, le=1048576)
+    workers: int = Field(default=1, gt=0, le=32)
 
 # Application initialization
 app = FastAPI(
@@ -103,6 +112,7 @@ async def metrics_stream(websocket: WebSocket) -> None:
                 "type": "metrics_update",
                 **kafka_metrics_service.snapshot(),
                 "operations": operations_service.overview(),
+                "performance": performance_service.overview(),
             })
             await asyncio.sleep(settings.KAFKA_METRICS_POLL_INTERVAL_SECONDS)
     except (WebSocketDisconnect, asyncio.CancelledError):
@@ -195,6 +205,60 @@ async def operations_stream(websocket: WebSocket) -> None:
         return
 
 
+@app.post("/api/throughput-tests", tags=["Performance"])
+async def run_throughput_test(request: ThroughputTestRequest) -> Dict[str, Any]:
+    """Run a bounded local pipeline benchmark and persist its measured result."""
+    return await asyncio.to_thread(
+        performance_service.run_test,
+        request.duration_seconds,
+        request.target_rate,
+        request.payload_size,
+        request.workers,
+    )
+
+
+@app.get("/api/throughput-tests", tags=["Performance"])
+async def throughput_tests() -> Dict[str, Any]:
+    return {"status": "ok", "items": performance_service.store.tests()}
+
+
+@app.get("/api/throughput-tests/{test_id}", tags=["Performance"])
+async def throughput_test(test_id: str) -> Dict[str, Any]:
+    item = next((entry for entry in performance_service.store.tests(100) if entry["id"] == test_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Throughput test not found")
+    return {"status": "ok", "test": item}
+
+
+@app.get("/api/bottlenecks", tags=["Performance"])
+async def bottlenecks() -> Dict[str, Any]:
+    return {"status": "ok", "nodes": performance_service.node_status()}
+
+
+@app.get("/api/anomalies", tags=["Performance"])
+async def anomalies(active: bool = False) -> Dict[str, Any]:
+    return {"status": "ok", "items": performance_service.store.alerts(active_only=active)}
+
+
+@app.get("/api/alerts/history", tags=["Performance"])
+async def alert_history() -> Dict[str, Any]:
+    return {"status": "ok", "items": performance_service.store.alerts()}
+
+
+@app.post("/api/alerts/{alert_id}/acknowledge", tags=["Performance"])
+async def acknowledge_alert(alert_id: str) -> Dict[str, Any]:
+    if not performance_service.transition_alert(alert_id, "ACKNOWLEDGED"):
+        raise HTTPException(status_code=404, detail="Alert not found or already resolved")
+    return {"status": "ok", "alertId": alert_id, "state": "ACKNOWLEDGED"}
+
+
+@app.post("/api/alerts/{alert_id}/resolve", tags=["Performance"])
+async def resolve_alert(alert_id: str) -> Dict[str, Any]:
+    if not performance_service.transition_alert(alert_id, "RESOLVED"):
+        raise HTTPException(status_code=404, detail="Alert not found or already resolved")
+    return {"status": "ok", "alertId": alert_id, "state": "RESOLVED"}
+
+
 @app.get("/metrics", tags=["Observability"])
 async def prometheus_metrics() -> Response:
     """Prometheus metrics scraping endpoint."""
@@ -208,6 +272,8 @@ async def topology_view() -> Dict[str, Any]:
     kafka_metrics = get_kafka_observability()
     kafka_status = "live" if kafka_metrics["status"] == "healthy" else "unavailable"
     lag_status = "healthy" if kafka_metrics["maxPartitionLag"] < 1000 else "degraded"
+    processor_status = next((item for item in performance_service.node_status() if item["nodeId"] == "processor"), None)
+    processor_node_status = processor_status["status"].lower() if processor_status else "unknown"
     return {
         "status": "ok",
         "service": "streamforge-backend",
@@ -268,7 +334,7 @@ async def topology_view() -> Dict[str, Any]:
             {
                 "id": "aggregator",
                 "position": {"x": 900, "y": 180},
-                "data": {"label": "processed-averages", "status": kafka_status},
+                "data": {"label": "processed-averages", "status": processor_node_status, "performance": processor_status},
                 "style": {
                     "background": "#7c3aed",
                     "color": "#ffffff",

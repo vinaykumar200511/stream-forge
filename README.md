@@ -169,3 +169,20 @@ The dashboard now exposes a shared operations contract at `GET /api/operations/o
 Temperature alert evaluation uses `HIGH_TEMPERATURE_THRESHOLD` and `HIGH_TEMPERATURE_DURATION_SECONDS`. One active alert is retained per device, resolves when the reading returns to the threshold, and is not duplicated while the condition remains active.
 
 The current telemetry contract contains GPS, temperature readings, and throughput gauges, but it does not contain persisted temperature history, normalized failure events, trip records, load records, or delivery events. Those sections return explicit `unavailable` or empty states until those source events and storage models are added; the UI does not fabricate them.
+
+## 9. Phase 3 Performance Observability
+
+Phase 3 adds bounded throughput tests and persisted anomaly history in the separate SQLite database configured by `OBSERVABILITY_DB_PATH` (default: `./data/streamforge_observability.db`). The benchmark records actual event rate, average latency, p95/p99 latency, errors, and failure rate. Configurable bottleneck rules evaluate throughput, latency, and errors, then publish processor status through the existing metrics WebSocket and expose it in the React Flow aggregator node.
+
+Performance APIs:
+
+- `POST /api/throughput-tests`
+- `GET /api/throughput-tests`
+- `GET /api/throughput-tests/{test_id}`
+- `GET /api/bottlenecks`
+- `GET /api/anomalies?active=true|false`
+- `GET /api/alerts/history`
+- `POST /api/alerts/{alert_id}/acknowledge`
+- `POST /api/alerts/{alert_id}/resolve`
+
+The benchmark is intentionally bounded to 30 seconds per request and measures a local processing loop. Kafka-connected end-to-end throughput and database-backed historical telemetry remain `NOT VERIFIED` unless those dependencies are running and wired to the source event stream.

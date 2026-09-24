@@ -151,11 +151,12 @@ const StreamNode = ({ data, id }) => (
   <div className={`stream-node stream-node-${id} stream-node-${data.status || "unknown"}`}>
     <Handle type="target" position={Position.Left} />
     <div className="stream-node-heading">
-      <span className="stream-node-dot" />
+      <span className="stream-node-dot" aria-hidden="true" />
       <strong>{data.label}</strong>
     </div>
     <span className="stream-node-status">{data.status || "unknown"}</span>
     {data.lag !== undefined && <small>{data.lag.toLocaleString()} lag</small>}
+    {data.performance && <small>{Math.round(data.performance.throughput).toLocaleString()} ev/s · p95 {Math.round(data.performance.p95Latency)} ms</small>}
     <Handle type="source" position={Position.Right} />
   </div>
 );
@@ -167,6 +168,7 @@ const applyLiveMetricsToTopology = (currentTopology, liveMetrics) => {
   const partitions = (group?.topics || []).flatMap((topic) => topic.partitions || []);
   const totalLag = group?.totalLag || 0;
   const lagStatus = totalLag > 1000 ? "degraded" : liveMetrics?.status === "healthy" ? "healthy" : "unavailable";
+  const processor = liveMetrics?.performance?.nodeStatuses?.find((item) => item.nodeId === "processor");
   return {
     ...currentTopology,
     nodes: currentTopology.nodes.map((node) => {
@@ -178,6 +180,9 @@ const applyLiveMetricsToTopology = (currentTopology, liveMetrics) => {
       }
       if (node.id === "worker2") {
         return { ...node, data: { ...node.data, status: lagStatus, lag: partitions.filter((item) => item.partition > 2).reduce((sum, item) => sum + item.lag, 0) } };
+      }
+      if (node.id === "aggregator" && processor) {
+        return { ...node, data: { ...node.data, status: processor.status.toLowerCase(), performance: processor } };
       }
       return node;
     }),
@@ -314,6 +319,7 @@ function App() {
     deliveries: { status: "loading", items: [] },
   });
   const [trips, setTrips] = useState({ status: "loading", items: [] });
+  const [performance, setPerformance] = useState({ throughputTests: [], alerts: [], activeAlerts: [], nodeStatuses: [], latestTest: null });
   const [topology, setTopology] = useState(buildFallbackTopology);
   const [routes, setRoutes] = useState(defaultRoutes);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -408,13 +414,25 @@ function App() {
       }
     };
 
+    let metricsSocket;
+    let reconnectTimer;
     const connectMetricsStream = () => {
       const socketUrl = `${API_BASE_URL.replace(/^http/, "ws")}/api/metrics/stream`;
       const socket = new WebSocket(socketUrl);
+      metricsSocket = socket;
+      socket.onopen = () => {
+        if (isMounted) setConnectionState("live");
+      };
       socket.onmessage = (event) => {
         if (!isMounted) return;
-        const liveMetrics = JSON.parse(event.data);
+        let liveMetrics;
+        try {
+          liveMetrics = JSON.parse(event.data);
+        } catch {
+          return;
+        }
         if (liveMetrics.operations) setOperations(liveMetrics.operations);
+        if (liveMetrics.performance) setPerformance(liveMetrics.performance);
         const group = liveMetrics?.groups?.[0];
         const partitions = (group?.topics || []).flatMap((topic) => topic.partitions || []);
         setStreamMetrics({
@@ -429,6 +447,12 @@ function App() {
         setConnectionState(liveMetrics.status === "healthy" ? "live" : "fallback");
       };
       socket.onerror = () => socket.close();
+      socket.onclose = () => {
+        if (isMounted) {
+          setConnectionState("fallback");
+          reconnectTimer = window.setTimeout(connectMetricsStream, 2000);
+        }
+      };
       return socket;
     };
 
@@ -463,7 +487,7 @@ function App() {
     fetchOperations();
     fetchTrips();
     fetchRoutes();
-    const metricsSocket = connectMetricsStream();
+    connectMetricsStream();
     const topologyInterval = window.setInterval(fetchTopology, 4000);
     const routeInterval = window.setInterval(fetchRoutes, 5000);
     const metricsInterval = window.setInterval(fetchMetrics, 5000);
@@ -477,7 +501,8 @@ function App() {
       window.clearInterval(metricsInterval);
       window.clearInterval(operationsInterval);
       window.clearInterval(tripsInterval);
-      metricsSocket.close();
+      window.clearTimeout(reconnectTimer);
+      metricsSocket?.close();
     };
   }, [dateFilter, routeFilter, truckIdFilter, truckTypeFilter]);
 
@@ -663,6 +688,26 @@ function App() {
             ))}
           </div>
         </article>
+      </section>
+
+      <section className="phase-three-panel" aria-label="Anomaly alerts and throughput testing">
+        <div className="section-title">
+          <div><span className="chart-label">Phase 3 observability</span><h2>Anomaly alerts and throughput tests</h2><p>Measured pipeline performance, bottleneck status, and persisted alert history.</p></div>
+          <span className="source-state">{performance.latestTest ? `Last test ${new Date(performance.latestTest.completedAt).toLocaleTimeString()}` : "No test run"}</span>
+        </div>
+        <div className="phase-three-grid">
+          <article className="anomaly-panel">
+            <div className="panel-heading"><strong>Active anomalies</strong><span>{performance.activeAlerts.length}</span></div>
+            {performance.activeAlerts.length ? performance.activeAlerts.map((alert) => <div className="anomaly-row" key={alert.id}><div><strong>{alert.alertType.replaceAll("_", " ")}</strong><span>{alert.nodeId} · {alert.description}</span></div><b>{alert.severity}</b></div>) : <p className="data-state">No active performance anomalies.</p>}
+            <div className="panel-heading history-heading-small"><strong>Alert history</strong><span>{performance.alerts.length}</span></div>
+            {performance.alerts.slice(0, 3).map((alert) => <div className="history-alert-row" key={alert.id}><span>{alert.alertType.replaceAll("_", " ")}</span><small>{alert.status} · {new Date(alert.triggeredAt).toLocaleTimeString()}</small></div>)}
+          </article>
+          <article className="throughput-test-panel">
+            <div className="panel-heading"><strong>Throughput test result</strong><span>{performance.latestTest?.status || "NOT RUN"}</span></div>
+            {performance.latestTest ? <div className="test-result-grid"><div><strong>{Math.round(performance.latestTest.actualRate).toLocaleString()}</strong><span>events/sec</span></div><div><strong>{performance.latestTest.p95LatencyMs}</strong><span>p95 ms</span></div><div><strong>{performance.latestTest.p99LatencyMs}</strong><span>p99 ms</span></div><div><strong>{performance.latestTest.failureRate * 100}%</strong><span>failure rate</span></div></div> : <p className="data-state">Run `POST /api/throughput-tests` to measure the pipeline.</p>}
+            {performance.nodeStatuses.map((node) => <div className={`bottleneck-banner ${node.status.toLowerCase()}`} key={node.nodeId}><strong>{node.nodeId}: {node.status}</strong><span>{Math.round(node.throughput).toLocaleString()} ev/s · p95 {Math.round(node.p95Latency)} ms</span></div>)}
+          </article>
+        </div>
       </section>
 
       <section className="lag-panel" aria-label="Kafka partition lag">

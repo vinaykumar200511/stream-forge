@@ -234,6 +234,28 @@ h1 {
 .domain-status span { color: #cbd5e1; font-size: 12px; font-weight: 700; text-transform: capitalize; }
 .domain-status strong { color: #facc15; font-size: 13px; text-transform: uppercase; }
 .domain-status small { color: #94a3b8; font-size: 11px; }
+.phase-three-panel { max-width: 1400px; margin: 0 auto 24px; padding: 20px; border: 1px solid #24364d; border-radius: 14px; background: rgba(15, 30, 50, 0.88); }
+.phase-three-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.anomaly-panel, .throughput-test-panel { min-width: 0; padding: 16px; border: 1px solid #24364d; border-radius: 10px; background: rgba(8, 17, 29, 0.78); }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: #f8fafc; font-size: 13px; }
+.panel-heading span { color: #94a3b8; font-size: 11px; text-transform: uppercase; }
+.anomaly-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid rgba(56, 80, 108, 0.45); }
+.anomaly-row div { display: grid; gap: 4px; min-width: 0; }
+.anomaly-row strong { color: #f8fafc; font-size: 12px; text-transform: uppercase; }
+.anomaly-row span { overflow: hidden; color: #94a3b8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.anomaly-row b { color: #fca5a5; font-size: 11px; }
+.history-heading-small { margin-top: 17px; padding-top: 12px; border-top: 1px solid #24364d; }
+.history-alert-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; color: #cbd5e1; font-size: 11px; }
+.history-alert-row small { color: #94a3b8; }
+.test-result-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.test-result-grid div { display: grid; gap: 4px; padding: 11px 7px; border: 1px solid #24364d; border-radius: 8px; background: #0b192b; text-align: center; }
+.test-result-grid strong { color: #7dd3fc; font-size: 19px; }
+.test-result-grid span { color: #94a3b8; font-size: 10px; }
+.bottleneck-banner { display: grid; gap: 4px; margin-top: 14px; padding: 11px 12px; border-left: 3px solid #4ade80; background: rgba(34, 197, 94, 0.08); }
+.bottleneck-banner strong { color: #86efac; font-size: 12px; text-transform: uppercase; }
+.bottleneck-banner span { color: #94a3b8; font-size: 11px; }
+.bottleneck-banner.bottleneck, .bottleneck-banner.critical { border-left-color: #f87171; background: rgba(127, 29, 29, 0.16); }
+.bottleneck-banner.bottleneck strong, .bottleneck-banner.critical strong { color: #fca5a5; }
 
 .lag-panel {
   max-width: 1400px;

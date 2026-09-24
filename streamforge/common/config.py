@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     TEMP_SPIKE_TOLERANCE: float = Field(default=3.0)
     HIGH_TEMPERATURE_THRESHOLD: float = Field(default=-10.0)
     HIGH_TEMPERATURE_DURATION_SECONDS: int = Field(default=30, ge=0)
+    OBSERVABILITY_DB_PATH: str = Field(default="./data/streamforge_observability.db")
+    BOTTLENECK_P95_LATENCY_MS: float = Field(default=500.0, gt=0)
+    BOTTLENECK_LAG: int = Field(default=1000, ge=0)
+    BOTTLENECK_FAILURE_RATE: float = Field(default=0.05, ge=0, le=1)
+    BOTTLENECK_MIN_THROUGHPUT_RATIO: float = Field(default=0.7, gt=0, le=1)
+    BOTTLENECK_CONSECUTIVE_VIOLATIONS: int = Field(default=2, ge=1)
 
     # Backend & Security
     API_HOST: str = Field(default="0.0.0.0")
