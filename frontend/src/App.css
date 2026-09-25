@@ -411,6 +411,37 @@ h1 {
   font-size: 24px;
 }
 
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 10px;
+}
+
+.export-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #38506c;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.export-button:hover:not(:disabled),
+.export-button:focus-visible:not(:disabled) {
+  border-color: #38bdf8;
+  color: #f8fafc;
+  outline: none;
+}
+
+.export-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .chart-tag {
   display: inline-flex;
   align-items: center;
@@ -972,7 +1003,10 @@ h1 {
   }
 
   .operations-grid,
-  .history-content {
+  .history-content,
+  .phase-three-grid,
+  .chart-grid,
+  .kpi-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1030,10 +1064,15 @@ h1 {
   .truck-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 480px) {
-  .cards {
+  .cards,
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1062,6 +1101,13 @@ h1 {
 
   .header-actions {
     justify-content: flex-start;
+  }
+
+  .phase-three-grid,
+  .chart-grid,
+  .command-kpi-grid,
+  .kpi-grid {
+    grid-template-columns: 1fr;
   }
 }
 

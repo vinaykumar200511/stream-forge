@@ -201,6 +201,40 @@ const formatNumber = (value) =>
     maximumFractionDigits: value >= 1000 ? 0 : 1,
   }).format(value);
 
+const exportDataSet = (filename, rows, fields, format = "csv") => {
+  if (!rows || !rows.length) {
+    return;
+  }
+
+  let content = "";
+  if (format === "json") {
+    content = JSON.stringify(rows, null, 2);
+  } else {
+    const header = fields.join(",");
+    const lines = rows.map((row) => {
+      const values = fields.map((field) => {
+        const rawValue = row[field] ?? "";
+        const value = String(rawValue).replace(/"/g, '""');
+        return `"${value}"`;
+      });
+      return values.join(",");
+    });
+    content = [header, ...lines].join("\n");
+  }
+
+  const blob = new Blob([content], {
+    type: format === "json" ? "application/json;charset=utf-8" : "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}.${format}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
 const getRouteSummary = (truck) => {
   const routeLength = truck.route?.length || 1;
   const completion = Math.min(98, Math.max(52, 60 + routeLength * 8 + (truck.status === "delayed" ? -10 : 8)));
@@ -705,6 +739,12 @@ function App() {
           <article className="throughput-test-panel">
             <div className="panel-heading"><strong>Throughput test result</strong><span>{performance.latestTest?.status || "NOT RUN"}</span></div>
             {performance.latestTest ? <div className="test-result-grid"><div><strong>{Math.round(performance.latestTest.actualRate).toLocaleString()}</strong><span>events/sec</span></div><div><strong>{performance.latestTest.p95LatencyMs}</strong><span>p95 ms</span></div><div><strong>{performance.latestTest.p99LatencyMs}</strong><span>p99 ms</span></div><div><strong>{performance.latestTest.failureRate * 100}%</strong><span>failure rate</span></div></div> : <p className="data-state">Run `POST /api/throughput-tests` to measure the pipeline.</p>}
+            <div className="export-actions">
+              <button type="button" className="export-button" disabled={!performance.alerts.length} onClick={() => exportDataSet("streamforge-alerts", performance.alerts, ["id", "alertType", "severity", "nodeId", "status", "triggeredAt"], "csv")}>CSV alerts</button>
+              <button type="button" className="export-button" disabled={!performance.alerts.length} onClick={() => exportDataSet("streamforge-alerts", performance.alerts, ["id", "alertType", "severity", "nodeId", "status", "triggeredAt"], "json")}>JSON alerts</button>
+              <button type="button" className="export-button" disabled={!performance.throughputTests.length} onClick={() => exportDataSet("streamforge-throughput", performance.throughputTests, ["id", "targetRate", "actualRate", "p95LatencyMs", "p99LatencyMs", "failureRate", "status", "completedAt"], "csv")}>CSV tests</button>
+              <button type="button" className="export-button" disabled={!performance.throughputTests.length} onClick={() => exportDataSet("streamforge-throughput", performance.throughputTests, ["id", "targetRate", "actualRate", "p95LatencyMs", "p99LatencyMs", "failureRate", "status", "completedAt"], "json")}>JSON tests</button>
+            </div>
             {performance.nodeStatuses.map((node) => <div className={`bottleneck-banner ${node.status.toLowerCase()}`} key={node.nodeId}><strong>{node.nodeId}: {node.status}</strong><span>{Math.round(node.throughput).toLocaleString()} ev/s · p95 {Math.round(node.p95Latency)} ms</span></div>)}
           </article>
         </div>
