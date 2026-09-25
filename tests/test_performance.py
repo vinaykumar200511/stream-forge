@@ -56,3 +56,27 @@ def test_bottleneck_evaluation_persists_one_deduplicated_alert(tmp_path: Path):
     assert first["alertType"] == "THROUGHPUT_DROP"
     assert second is None
     assert len(service.store.alerts(active_only=True)) == 1
+
+
+def test_resolving_bottleneck_alert_clears_active_state(tmp_path: Path):
+    service = PerformanceService()
+    service.store = service.store.__class__(str(tmp_path / "alerts.db"))
+    alert = {
+        "id": "alert-1",
+        "alertType": "THROUGHPUT_DROP",
+        "severity": "HIGH",
+        "nodeId": "processor",
+        "metric": "throughput_drop",
+        "currentValue": 400.0,
+        "threshold": 700.0,
+        "status": "TRIGGERED",
+        "description": "Throughput drop detected.",
+        "triggeredAt": "2026-09-25T00:00:00Z",
+        "acknowledgedAt": None,
+        "resolvedAt": None,
+    }
+    service.store.save_alert(alert)
+    service._active_keys.add(("processor", "THROUGHPUT_DROP"))
+
+    assert service.transition_alert("alert-1", "RESOLVED") is True
+    assert ("processor", "THROUGHPUT_DROP") not in service._active_keys

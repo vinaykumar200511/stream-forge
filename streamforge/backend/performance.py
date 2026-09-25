@@ -187,8 +187,13 @@ class PerformanceService:
     def transition_alert(self, alert_id: str, status: str) -> bool:
         alert = next((item for item in self.store.alerts() if item["id"] == alert_id), None)
         updated = self.store.update_alert(alert_id, status)
-        if updated and status == "RESOLVED" and alert:
-            self._active_keys.discard((alert["node_id"], alert["alert_type"]))
+        if updated and alert:
+            key = (alert["node_id"], alert["alert_type"])
+            if status == "RESOLVED":
+                self._active_keys.discard(key)
+                self._violation_counts.pop(key, None)
+            elif status == "ACKNOWLEDGED":
+                self._active_keys.add(key)
         return updated
 
     def overview(self) -> dict[str, Any]:

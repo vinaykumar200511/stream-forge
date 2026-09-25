@@ -350,8 +350,8 @@ h1 {
 .stream-node small { display: block; margin: 5px 0 0 15px; color: #94a3b8; font-size: 10px; }
 .stream-node-healthy .stream-node-dot, .stream-node-live .stream-node-dot, .stream-node-streaming .stream-node-dot { background: #4ade80; }
 .stream-node-healthy .stream-node-status, .stream-node-live .stream-node-status, .stream-node-streaming .stream-node-status { color: #86efac; }
-.stream-node-unavailable .stream-node-dot { background: #f87171; }
-.stream-node-unavailable .stream-node-status { color: #fca5a5; }
+.stream-node-bottleneck .stream-node-dot, .stream-node-critical .stream-node-dot, .stream-node-unavailable .stream-node-dot { background: #f87171; }
+.stream-node-bottleneck .stream-node-status, .stream-node-critical .stream-node-status, .stream-node-unavailable .stream-node-status { color: #fca5a5; }
 .stream-node-producer { border-color: #2563eb; }
 .stream-node-kafka { border-color: #f97316; }
 .stream-node-worker1 { border-color: #16a34a; }
