@@ -41,3 +41,15 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+
+  streamforge-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamforge-worker
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    restart: unless-stopped
