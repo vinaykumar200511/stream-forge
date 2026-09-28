@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # Apache Kafka in KRaft Mode (No ZooKeeper required in 2026)
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: streamforge-kafka
@@ -29,7 +26,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Kafka Web UI for visual cluster & topic management
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: streamforge-kafka-ui
@@ -52,4 +48,9 @@ services:
         condition: service_healthy
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - worker-state:/app/streamforge-data
     restart: unless-stopped
+
+volumes:
+  worker-state:

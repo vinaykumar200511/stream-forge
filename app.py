@@ -1,15 +1,22 @@
+import os
 import faust
 from datetime import timedelta
 import time
 
+# Reads from env var when running in Docker (KAFKA_BOOTSTRAP_SERVERS=kafka:9092),
+# falls back to localhost for running directly on the host.
+KAFKA_BROKER = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+
 app = faust.App(
     'streamforge',
-    broker='kafka://localhost:9092',
+    broker=f'kafka://{KAFKA_BROKER}',
     store='memory://',
-    # TODO (Week 3 - RocksDB): store='rocksdb://' is blocked on Windows.
+    # TODO (Week 3 - RocksDB): store='rocksdb://' is blocked on native Windows.
     # Full toolchain (pkg-config, MSVC Build Tools, RocksDB via vcpkg) built
-    # successfully; blocked by a bug in faust-streaming-rocksdb==0.9.3's
-    # own setup.py. Next step: run this worker in Docker/WSL (Linux).
+    # successfully; blocked by a bug in faust-streaming-rocksdb==0.9.3's own
+    # setup.py. Running this worker in Docker (see Dockerfile) sidesteps the
+    # issue entirely since Linux has prebuilt wheels - switch to
+    # store='rocksdb://' once running there is confirmed stable.
 )
 
 class RawTelemetryEvent(faust.Record, serializer='json'):
